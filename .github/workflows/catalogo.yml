@@ -1,0 +1,41 @@
+name: Atualizar catálogo do chat
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # a cada 3 horas
+  workflow_dispatch: {}       # botão "Run workflow" para rodar na hora
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalogo
+  cancel-in-progress: false
+
+jobs:
+  atualizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Gerar catalogo.json a partir do feed
+        env:
+          FEED_URL: ${{ secrets.FEED_URL }}
+        run: python catalogo/gerar_catalogo.py --saida catalogo/catalogo.json
+
+      - name: Publicar se mudou
+        run: |
+          git config user.name "quinto-chat-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add catalogo/catalogo.json
+          if git diff --cached --quiet; then
+            echo "Catálogo sem mudanças."
+            git reset -q
+          else
+            git commit -m "Catálogo atualizado"
+            git push
+          fi
