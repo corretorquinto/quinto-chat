@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quinto Chat - demonstração</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#eef1f4;color:#1b2733}
+  main{max-width:760px;margin:0 auto;padding:40px 20px}
+  .faixa{background:#fff8e1;border:1px solid #f0d58a;padding:12px 14px;border-radius:10px;font-size:14px;line-height:1.5}
+</style>
+</head>
+<body>
+<main>
+  <h1>Página de teste do Quinto Chat</h1>
+  <p class="faixa">Modo demonstração: as respostas são simuladas, sem custo de API. Abra o chat no canto da tela e experimente
+  "Não achei o imóvel que procuro", "Quero vender meu imóvel" ou "Apartamento em Icaraí".
+  Nesta página de teste as fichas não são enviadas: no site, elas abrem o Fale Conosco já preenchido.<br>
+  Para testar com o agente de verdade, abra esta página com <code>?api=</code> e o endereço do seu Worker no fim do link.</p>
+</main>
+
+<script>
+// Respostas simuladas (só valem quando data-api="demo")
+(function () {
+  var imoveis = [
+    { codigo: "QI1622", titulo: "Apartamento 3 quartos, 100 m² em Icaraí", bairro: "Icaraí", preco: 690000, quartos: 3, vagas: 1, area: 100, foto: "", url: "https://www.quintoimoveis.com.br/imovel/4375022/apartamento-venda-niteroi-rj-icarai" },
+    { codigo: "QI1623", titulo: "Apartamento 3 quartos com suíte, 100 m² em Icaraí", bairro: "Icaraí", preco: 599000, quartos: 3, vagas: 1, area: 100, foto: "", url: "https://www.quintoimoveis.com.br/imovel/4378274/apartamento-venda-niteroi-rj-icarai" }
+  ];
+  var original = window.fetch;
+  window.fetch = function (url, opts) {
+    if (String(url).indexOf("demo/") !== 0) return original.apply(this, arguments);
+    var msgs = JSON.parse(opts.body).mensagens;
+    var t = msgs[msgs.length - 1].content.toLowerCase();
+    var r;
+    if (/não achei|nao achei|diferente/.test(t)) {
+      r = { texto: "Sem problema! O Antônio procura o imóvel no mercado para você, inclusive entre os que ainda não estão anunciados. Confira a ficha, complete seus dados e toque em Enviar. Se preferir, chame no WhatsApp.", imoveis: [],
+            acao: { tipo: "ficha_busca", dados: { tipo: "Apartamento", bairros: "Icaraí", quartos_min: 3, suite: true, preco_max: 900000, pagamento: "Financiamento" } } };
+    } else if (/vender/.test(t)) {
+      r = { texto: "Que bom! O corretor Antônio Quinto entra em contato para conversar sobre a avaliação e a venda, com segurança jurídica e sem burocracia. Você aceitaria permuta? Pode responder na ficha.", imoveis: [],
+            acao: { tipo: "ficha_venda", dados: { tipo: "Apartamento", bairro: "Icaraí" } } };
+    } else if (/antônio|antonio|whatsapp/.test(t)) {
+      r = { texto: "Claro! Toque no botão: você informa nome e telefone e a conversa abre com o resumo pronto.", imoveis: [],
+            acao: { tipo: "whatsapp", texto: "Olá, Antônio! Vim pelo assistente do site.\nQuero falar sobre imóveis em Niterói." } };
+    } else {
+      r = { texto: "Encontrei 2 apartamentos em Icaraí:\n#QI1622 - 3 quartos, 100 m², R$ 690.000\n#QI1623 - 3 quartos com suíte, 100 m², R$ 599.000\nSe nenhum servir, o Antônio pode procurar no mercado para você.", imoveis: imoveis, acao: null };
+    }
+    return new Promise(function (ok) {
+      setTimeout(function () { ok(new Response(JSON.stringify(r), { headers: { "Content-Type": "application/json" } })); }, 800);
+    });
+  };
+})();
+</script>
+<script>
+// Sem parâmetro: modo demonstração. Com ?api=https://quinto-chat.SEU-USUARIO.workers.dev usa o agente de verdade.
+(function () {
+  var api = new URLSearchParams(location.search).get("api") || "demo";
+  var s = document.createElement("script");
+  s.src = "quinto-chat.js";
+  s.setAttribute("data-api", api);
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "quinto-chat",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "teste": "node --test ../testes/worker.test.mjs",
+    "publicar": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

@@ -1,0 +1,50 @@
+name = "quinto-chat"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Sites que podem usar o chat (separe por vírgula).
+# O endereço do GitHub Pages serve para testar pela demo.html; pode remover depois.
+ORIGENS_PERMITIDAS = "https://www.quintoimoveis.com.br,https://quintoimoveis.com.br,https://corretorquinto.github.io"
+# Onde o catálogo gerado pelo GitHub fica publicado
+CATALOGO_URL = "https://corretorquinto.github.io/quinto-chat/catalogo/catalogo.json"
+# Número do WhatsApp com DDI e DDD, só dígitos
+WHATSAPP = "5521981036246"
+
+# =====================================================================
+# MODELO DE IA: troque de provedor mudando só estas linhas
+# =====================================================================
+# Provedor usado no atendimento: ANTHROPIC, OPENAI, DEEPSEEK, GEMINI, GROQ,
+# MISTRAL, XAI, OPENROUTER, ou qualquer outro nome que você configurar abaixo.
+PROVEDOR_ATIVO = "OPENAI"
+# Opcional: provedor usado automaticamente se o ativo falhar (fora do ar, sem crédito).
+# Deixe vazio para não usar reserva.
+PROVEDOR_RESERVA = ""
+
+# Modelo de cada provedor. Confira o nome exato na página de preços do provedor.
+# Só o modelo do provedor ativo (e da reserva) é usado; os outros ficam prontos para a troca.
+ANTHROPIC_MODELO = "claude-haiku-5-5"
+OPENAI_MODELO = "gpt-6-luna"
+DEEPSEEK_MODELO = "deepseek-flash"
+GEMINI_MODELO = "gemini-2.5-flash-lite"
+
+# O endereço da API dos provedores acima já está no código (provedores.js).
+# Só precisa informar se quiser trocar, ex.: ANTHROPIC_API_URL = "https://..."
+#
+# Provedor que não está na lista? Qualquer API "compatível com OpenAI" funciona.
+# Exemplo (descomente e ajuste):
+# NOVO_FORMATO = "openai"
+# NOVO_API_URL = "https://api.exemplo.com/v1/chat/completions"
+# NOVO_MODELO = "nome-do-modelo"
+# e cadastre a chave:  npx wrangler secret put NOVO_API_KEY
+# Depois é só usar PROVEDOR_ATIVO = "NOVO".
+
+# As chaves NÃO ficam aqui. Cadastre cada uma como secret (uma vez por provedor):
+#   npx wrangler secret put ANTHROPIC_API_KEY
+#   npx wrangler secret put OPENAI_API_KEY
+#   npx wrangler secret put DEEPSEEK_API_KEY
+#   npx wrangler secret put GEMINI_API_KEY
+# Depois de mudar qualquer linha deste arquivo:  npx wrangler deploy
+
+[observability]
+enabled = true

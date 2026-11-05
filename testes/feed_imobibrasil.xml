@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<imoveis>
+  <imovel>
+    <id_imovel>4378274</id_imovel>
+    <referencia>QI1623</referencia>
+    <tipo>Apartamento</tipo>
+    <finalidade>Venda</finalidade>
+    <cidade>Niterói</cidade>
+    <bairro>Icaraí</bairro>
+    <valor_venda>599.000,00</valor_venda>
+    <valor_condominio>1.150,00</valor_condominio>
+    <dormitorios>3</dormitorios><suites>1</suites><banheiros>3</banheiros><vagas>1</vagas>
+    <area_util>100</area_util>
+    <titulo>Apartamento 3 quartos com suíte, 100 m² em Icaraí</titulo>
+    <descricao>Estar na sala deste imóvel é ter a percepção de amplitude. Rua Ator Paulo Gustavo.</descricao>
+    <caracteristicas><varanda>1</varanda><piscina>0</piscina><portaria_24h>Sim</portaria_24h></caracteristicas>
+    <fotos><foto><url>https://cdn.exemplo/a.webp</url></foto></fotos>
+  </imovel>
+  <imovel>
+    <id_imovel>9999</id_imovel><referencia>QI0001</referencia><tipo>Casa</tipo><bairro>Ingá</bairro>
+    <valor_venda>480000</valor_venda><ativo>0</ativo>
+  </imovel>
+</imoveis>

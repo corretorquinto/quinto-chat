@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ListingDataFeed xmlns="http://www.vivareal.com/schemas/1.0/VRSync">
+  <Header><Provider>ImobiBrasil</Provider></Header>
+  <Listings>
+    <Listing>
+      <ListingID>QI1626</ListingID>
+      <Title><![CDATA[Apartamento 2 quartos com suíte em Santa Rosa | Quinto]]></Title>
+      <TransactionType>For Sale</TransactionType>
+      <DetailViewUrl>https://www.quintoimoveis.com.br/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa</DetailViewUrl>
+      <Media>
+        <Item medium="image">https://cdn.exemplo/foto2.jpg</Item>
+        <Item medium="image" primary="true">https://cdn.exemplo/foto1.jpg</Item>
+      </Media>
+      <Details>
+        <PropertyType>Residential / Apartment</PropertyType>
+        <Description><![CDATA[<p>Morar perto de tudo em Niter&oacute;i sem abrir m&atilde;o do sil&ecirc;ncio.</p><p>Varanda e vaga.</p>]]></Description>
+        <ListPrice currency="BRL">400000</ListPrice>
+        <PropertyAdministrationFee currency="BRL">850</PropertyAdministrationFee>
+        <YearlyTax currency="BRL">1200</YearlyTax>
+        <LivingArea unit="square metres">70</LivingArea>
+        <Bedrooms>2</Bedrooms><Bathrooms>3</Bathrooms><Suites>1</Suites><Garage type="Parking Space">1</Garage>
+        <Features><Feature>Balcony</Feature><Feature>Elevator</Feature></Features>
+      </Details>
+      <Location displayAddress="Neighborhood">
+        <City>Niterói</City><Neighborhood>Santa Rosa</Neighborhood><Address>Rua Exemplo</Address>
+      </Location>
+    </Listing>
+    <Listing>
+      <ListingID>QI1624</ListingID>
+      <Title>Apartamento 2 quartos com suíte, 90 m² em Boa Viagem</Title>
+      <DetailViewUrl>https://www.quintoimoveis.com.br/imovel/4379604/apartamento-venda-niteroi-rj-boa-viagem</DetailViewUrl>
+      <Details><PropertyType>Residential / Apartment</PropertyType><ListPrice>850000</ListPrice><Bedrooms>2</Bedrooms><Garage>2</Garage><LivingArea>90</LivingArea><Description>Duas vagas, perto do MAC.</Description></Details>
+      <Location><City>Niterói</City><Neighborhood>Boa Viagem</Neighborhood></Location>
+    </Listing>
+  </Listings>
+</ListingDataFeed>
