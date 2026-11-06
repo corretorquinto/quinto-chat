@@ -73,6 +73,18 @@ TRADUCAO = {
     "security guard on duty": "Portaria 24h", "24 hour security": "Segurança 24h",
     "service area": "Área de serviço", "garden area": "Jardim", "ocean view": "Vista mar",
     "pets allowed": "Aceita pet", "american kitchen": "Cozinha americana",
+    # características vistas no feed do ImobiBrasil (VRSync)
+    "adult pool": "Piscina adulto", "bbq": "Churrasqueira", "close to schools": "Perto de escolas",
+    "close to shopping centers": "Perto de shopping", "cooling": "Ar-condicionado",
+    "dinner room": "Sala de jantar", "fenced yard": "Área cercada", "game room": "Salão de jogos",
+    "gourmet area": "Espaço gourmet", "gourmet balcony": "Varanda gourmet", "indoor soccer": "Quadra de futsal",
+    "kitchen": "Cozinha", "maid's quarters": "Dependência de empregada", "massage room": "Sala de massagem",
+    "spa": "Spa", "toys place": "Brinquedoteca", "veranda": "Varanda", "concierge 24h": "Portaria 24h",
+    "closet": "Closet", "copa": "Copa", "laundry": "Lavanderia", "fireplace": "Lareira",
+    "heated pool": "Piscina aquecida", "kids pool": "Piscina infantil", "tennis court": "Quadra de tênis",
+    "sports area": "Área esportiva", "cinema": "Cinema", "coworking": "Coworking", "deck": "Deck",
+    "garden": "Jardim", "private pool": "Piscina privativa", "storage": "Depósito",
+    "wine cellar": "Adega", "solarium": "Solário", "bicycles place": "Bicicletário",
 }
 
 
@@ -114,6 +126,8 @@ def limpar_texto(texto):
     texto = re.sub(r"<br\s*/?>|</p>", "\n", texto, flags=re.I)
     texto = re.sub(r"<[^>]+>", " ", texto)
     texto = html.unescape(texto)
+    # entidade que perdeu o "&" no caminho: "D#39;Or" -> "D'Or"
+    texto = re.sub(r"(?<!&)#(\d{2,4});", lambda m: chr(int(m.group(1))), texto)
     texto = re.sub(r"[ \t\r\f\v]+", " ", texto)
     texto = re.sub(r"\n\s*\n+", "\n", texto)
     return texto.strip()
@@ -225,21 +239,32 @@ def montar(imovel):
     if ativo in INATIVO:
         return None
 
+    # ImobiBrasil (VRSync): ListingID vem como "QI1546_1-3838693" = código + "_1-" + id do site
+    bruto = (v["codigo"] or v["id"] or "").strip()
+    m_id = re.match(r"^([A-Za-z]+\d+)_\d+-(\d+)$", bruto)
+    codigo_limpo = m_id.group(1) if m_id else bruto
+    id_limpo = (v["id"] or "").strip()
+    if m_id and (not id_limpo or id_limpo == bruto):
+        id_limpo = m_id.group(2)
+
     tipo = traduzir(limpar_texto(v["tipo"])) or "Imóvel"
     bairro = limpar_texto(v["bairro"])
     cidade = limpar_texto(v["cidade"]) or "Niterói"
     url = (v["url"] or "").strip()
-    if not url.startswith("http") and v["id"]:
-        url = f"{SITE}/imovel/{v['id']}/{slug(tipo)}-venda-{slug(cidade)}-rj-{slug(bairro)}"
+    if not url.startswith("http") and id_limpo:
+        url = f"{SITE}/imovel/{id_limpo}/{slug(tipo)}-venda-{slug(cidade)}-rj-{slug(bairro)}"
+    url = re.sub(r"^http://", "https://", url)
+    m_url = re.search(r"/imovel/(\d+)/", url)
+    if m_url and not id_limpo.isdigit():
+        id_limpo = m_url.group(1)
 
     descricao = limpar_texto(v["descricao"])
     if len(descricao) > LIMITE_DESCRICAO:
         descricao = descricao[:LIMITE_DESCRICAO].rsplit(" ", 1)[0] + "…"
 
-    codigo = (v["codigo"] or v["id"] or "").strip()
     return {
-        "id": (v["id"] or "").strip(),
-        "codigo": codigo,
+        "id": id_limpo,
+        "codigo": codigo_limpo,
         "tipo": tipo,
         "finalidade": traduzir(limpar_texto(v["finalidade"])) or "Venda",
         "bairro": bairro,
