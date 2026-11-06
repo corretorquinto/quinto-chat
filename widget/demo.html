@@ -13,7 +13,7 @@
 <body>
 <main>
   <h1>Página de teste do Quinto Chat</h1>
-  <p class="faixa">Modo demonstração: as respostas são simuladas, sem custo de API. Abra o chat no canto da tela e experimente
+  <p class="faixa" id="aviso-demo">Modo demonstração: as respostas são simuladas, sem custo de API. Abra o chat no canto da tela e experimente
   "Não achei o imóvel que procuro", "Quero vender meu imóvel" ou "Apartamento em Icaraí".
   Nesta página de teste as fichas não são enviadas: no site, elas abrem o Fale Conosco já preenchido.<br>
   Para testar com o agente de verdade, abra esta página com <code>?api=</code> e o endereço do seu Worker no fim do link.</p>
@@ -34,15 +34,15 @@
     var r;
     if (/não achei|nao achei|diferente/.test(t)) {
       r = { texto: "Sem problema! O Antônio procura o imóvel no mercado para você, inclusive entre os que ainda não estão anunciados. Confira a ficha, complete seus dados e toque em Enviar. Se preferir, chame no WhatsApp.", imoveis: [],
-            acao: { tipo: "ficha_busca", dados: { tipo: "Apartamento", bairros: "Icaraí", quartos_min: 3, suite: true, preco_max: 900000, pagamento: "Financiamento" } } };
+            acao: { tipo: "ficha_busca", dados: { tipo: "Apartamento", bairros: "Icaraí", quartos_min: 3, suite: true, faixa: "800a1200", pagamento: "Financiamento" } } };
     } else if (/vender/.test(t)) {
       r = { texto: "Que bom! O corretor Antônio Quinto entra em contato para conversar sobre a avaliação e a venda, com segurança jurídica e sem burocracia. Você aceitaria permuta? Pode responder na ficha.", imoveis: [],
             acao: { tipo: "ficha_venda", dados: { tipo: "Apartamento", bairro: "Icaraí" } } };
     } else if (/antônio|antonio|whatsapp/.test(t)) {
-      r = { texto: "Claro! Toque no botão: você informa nome e telefone e a conversa abre com o resumo pronto.", imoveis: [],
+      r = { texto: "Claro! É só informar seu nome e telefone abaixo e tocar em Enviar mensagem pelo WhatsApp: a conversa com o corretor Antônio Quinto abre com a mensagem pronta.", imoveis: [],
             acao: { tipo: "whatsapp", texto: "Olá, Antônio! Vim pelo assistente do site.\nQuero falar sobre imóveis em Niterói." } };
     } else {
-      r = { texto: "Encontrei 2 apartamentos em Icaraí:\n#QI1622 - 3 quartos, 100 m², R$ 690.000\n#QI1623 - 3 quartos com suíte, 100 m², R$ 599.000\nSe nenhum servir, o Antônio pode procurar no mercado para você.", imoveis: imoveis, acao: null };
+      r = { texto: "Encontrei 2 apartamentos em Icaraí. Veja as opções:", texto_depois: "Se nenhum servir, o Antônio pode procurar no mercado para você.", imoveis: imoveis, acao: null };
     }
     return new Promise(function (ok) {
       setTimeout(function () { ok(new Response(JSON.stringify(r), { headers: { "Content-Type": "application/json" } })); }, 800);
@@ -54,6 +54,11 @@
 // Sem parâmetro: modo demonstração. Com ?api=https://quinto-chat.SEU-USUARIO.workers.dev usa o agente de verdade.
 (function () {
   var api = new URLSearchParams(location.search).get("api") || "demo";
+  if (api !== "demo") {
+    document.getElementById("aviso-demo").innerHTML =
+      "<strong>Agente de verdade:</strong> as respostas vêm do Worker e consomem crédito da API. " +
+      "Nesta página de teste as fichas não são enviadas ao CRM: no site, elas abrem o formulário do ImobiBrasil já preenchido.";
+  }
   var s = document.createElement("script");
   s.src = "quinto-chat.js";
   s.setAttribute("data-api", api);

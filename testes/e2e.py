@@ -5,6 +5,7 @@ Uso: python3 testes/e2e.py [pasta_para_prints]
 """
 import asyncio
 import json
+import os
 import sys
 import urllib.parse
 import urllib.request
@@ -69,7 +70,8 @@ async def cenario_busca(nav):
     f = "#quinto-chat .ficha "
     confere(await pg.locator(f).count() == 1, "ficha de busca aparece no chat")
     confere(await pg.locator(f + "[name=bairros]").input_value() == "Icaraí, Santa Rosa", "bairros pré-preenchidos")
-    confere(await pg.locator(f + "[name=preco_max]").input_value() == "900.000", "preço pré-preenchido")
+    confere(await pg.locator(f + "[name=faixa]").input_value() == "800a1200", "faixa de valor pré-preenchida (900 mil -> R$ 800 mil a R$ 1,2 milhão)")
+    confere(await pg.locator(f + ".calc").is_hidden(), "link da calculadora escondido com faixa escolhida")
     confere(await pg.locator(f + "[name=suite]").is_checked(), "suíte marcada")
     await shot(pg, "1a_ficha_busca_celular")
     # tenta enviar sem dados
@@ -81,6 +83,15 @@ async def cenario_busca(nav):
     confere(await pg.locator(f + "[name=telefone]").input_value() == "(21) 98765-4321", "máscara do telefone no chat")
     await pg.locator(f + "[name=email]").fill("joao@exemplo.com")
     await pg.locator(f + "[name=permuta]").fill("apartamento de 2 quartos no Ingá")
+    # faixa é obrigatória
+    await pg.locator(f + "[name=faixa]").select_option("")
+    await pg.locator(f + ".enviar-ficha").click()
+    erros = await pg.evaluate(f"[...{SR}.querySelectorAll('.ficha [aria-invalid=true]')].map(e=>e.name)")
+    confere(erros == ["faixa"], f"faixa de valor obrigatória ({erros})")
+    await pg.locator(f + "[name=faixa]").select_option("nao_sei")
+    confere(await pg.locator(f + ".calc").is_visible(), "'Ainda não sei' mostra o link da calculadora")
+    confere(await pg.locator(f + ".calc").get_attribute("href") == "https://www.quintoimoveis.com.br/calculadora-financiamento", "link aponta para a calculadora")
+    await shot(pg, "1a2_faixa_nao_sei_celular")
     await pg.locator(f + ".enviar-ficha").click()
     await pg.wait_for_url("**/contato", timeout=5000)
     await pg.wait_for_timeout(900)
@@ -89,7 +100,7 @@ async def cenario_busca(nav):
     confere(await pg.locator(form + "[name=endemail]").input_value() == "joao@exemplo.com", "Fale Conosco: e-mail preenchido")
     confere(await pg.locator(form + "[name=telefone]").input_value() == "(21) 98765-4321", "Fale Conosco: telefone no formato do site")
     msg = await pg.locator(form + "[name=mensagem]").input_value()
-    confere(msg.startswith("BUSCA PERSONALIZADA (pelo assistente do site)\nProcuro: Apartamento, 3+ quartos, com suíte, em Icaraí, Santa Rosa, até R$ 900.000"), "mensagem da busca montada")
+    confere(msg.startswith("BUSCA PERSONALIZADA (pelo assistente do site)\nProcuro: Apartamento, 3+ quartos, com suíte, em Icaraí, Santa Rosa\nQuanto pretendo investir: ainda não sei / quero simular financiamento"), f"mensagem da busca montada: {msg[:160]!r}")
     confere("Imóvel para permuta: apartamento de 2 quartos no Ingá" in msg and "Pagamento: Financiamento" in msg, "permuta e pagamento na mensagem")
     confere(await pg.evaluate(f"!{SR}.querySelector('.guia').hidden"), "aviso 'Falta só um passo' visível")
     confere(await pg.evaluate("document.activeElement && document.activeElement.name") == "chave", "cursor no campo do código")
@@ -111,6 +122,7 @@ async def cenario_busca(nav):
     await pg.locator("#quinto-chat .lancador").click()
     ultima = await pg.evaluate(f"[...{SR}.querySelectorAll('.msg.bot .balao')].at(-1).innerText")
     confere(ultima.startswith("Recebido!"), "chat confirma o envio na página seguinte")
+    confere("calculadora-financiamento" in ultima, "confirmação lembra a calculadora")
     await shot(pg, "1c_confirmacao_celular")
     confere(not pg.erros, f"sem erros de JavaScript {pg.erros}")
     await pg.context.close()
@@ -162,7 +174,7 @@ async def cenario_venda_e_whatsapp(nav):
     await pg.locator(f + ".zap").click()
     await pg.wait_for_timeout(800)
     abertos = await pg.evaluate("window.__abertos")
-    confere(len(abertos) == 1 and abertos[0].startswith("https://wa.me/5521981036246?text="), "WhatsApp abre no número do corretor")
+    confere(len(abertos) == 1 and abertos[0].startswith("https://web.whatsapp.com/send?phone=5521981036246&text="), "no computador abre direto o WhatsApp Web")
     texto = urllib.parse.unquote(abertos[0].split("text=")[1])
     confere(texto.startswith("Olá, Antônio! Aqui é Conceição. Vim pelo assistente do site.\nQUERO VENDER MEU IMÓVEL"), "mensagem do WhatsApp com nome e ficha")
     confere("Imóvel: Cobertura, 3 quartos, 2 vagas, 150 m², em Icaraí" in texto and "Aceita permuta: Talvez" in texto, "dados da venda na mensagem")
@@ -180,8 +192,92 @@ async def cenario_venda_e_whatsapp(nav):
     await pg.context.close()
 
 
+CELULAR = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+
+MIC_FALSO = """
+window.SpeechRecognition = window.webkitSpeechRecognition = function () {
+  var r = this;
+  r.start = function () { setTimeout(function () {
+    r.onresult({ results: [[{ transcript: "apartamento de 2 quartos em Icaraí" }]] });
+    r.onend();
+  }, 200); };
+  r.stop = function () { r.onend && r.onend(); };
+};
+"""
+
+
+async def cenario_v12(nav):
+    print("\n[v1.2] Cartões sem lista, valores sem quebra, WhatsApp direto, microfone, valor indefinido")
+    ctx = await nav.new_context(viewport={"width": 390, "height": 800}, user_agent=CELULAR, is_mobile=True, has_touch=True,
+                                extra_http_headers={"X-Teste-IP": "10.9.9.9"})
+    await ctx.add_init_script(INIT + MIC_FALSO)
+    pg = await ctx.new_page()
+    pg.erros = []
+    pg.on("pageerror", lambda e: pg.erros.append(str(e)))
+    await pg.goto(BASE + "/")
+    # cartões no lugar da lista
+    await falar(pg, "me mostra a lista de imóveis")
+    baloes = await pg.evaluate(f"[...{SR}.querySelectorAll('.msg.bot')].at(-1).querySelectorAll('.balao').length")
+    cartoes = await pg.evaluate(f"[...{SR}.querySelectorAll('.msg.bot')].at(-1).querySelectorAll('.imovel').length")
+    texto = await pg.evaluate(f"[...{SR}.querySelectorAll('.msg.bot')].at(-1).innerText")
+    confere(cartoes == 2 and baloes == 2, f"frase, 2 cartões e frase final ({baloes} balões, {cartoes} cartões)")
+    confere("— Santa Rosa, 2 quartos —" not in texto, "a lista em texto não aparece")
+    ordem = await pg.evaluate(f"[...[...{SR}.querySelectorAll('.msg.bot')].at(-1).children].map(e=>e.className)")
+    confere(ordem[:4] == ["balao", "imovel", "imovel", "balao"], f"ordem: frase, cartões, frase ({ordem})")
+    hist = await pg.evaluate("JSON.parse(sessionStorage.getItem('quintoChat.v2')).historico.at(-1).content")
+    confere("#QI1626" in hist, "histórico guarda os códigos mostrados")
+    await shot(pg, "v12a_cartoes_celular")
+    # valores e telefone sem quebra
+    await falar(pg, "quanto custa o condomínio")
+    nw = await pg.evaluate(f"[...[...{SR}.querySelectorAll('.msg.bot')].at(-1).querySelectorAll('.nw')].map(e=>e.textContent)")
+    confere(nw == ["R$ 1.128", "R$ 113", "(21) 98103-6246"], f"R$ e telefone sem quebra de linha ({nw})")
+    # WhatsApp: nome e telefone direto
+    await falar(pg, "prefiro whatsapp")
+    ultima = f"[...{SR}.querySelectorAll('.msg.bot')].at(-1)"
+    confere(await pg.evaluate(f"!!{ultima}.querySelector('.mini [name=nome]')"), "nome e telefone aparecem direto, sem clique a mais")
+    botao = await pg.evaluate(f"{ultima}.querySelector('.mini .zap').innerText.trim()")
+    confere(botao == "Enviar mensagem pelo WhatsApp", f"botão diz o que faz ({botao!r})")
+    confere("mensagem pronta" in await pg.evaluate(f"{ultima}.querySelector('.mini .ajuda').innerText"), "explica que a mensagem vai pronta")
+    await shot(pg, "v12b_whatsapp_direto_celular")
+    await pg.locator("#quinto-chat .mini [name=nome]").last.fill("Maria")
+    await pg.locator("#quinto-chat .mini [name=telefone]").last.fill("21 97777-6666")
+    await pg.locator("#quinto-chat .mini .zap").last.click()
+    await pg.wait_for_timeout(400)
+    abertos = await pg.evaluate("window.__abertos")
+    confere(len(abertos) == 1 and abertos[0].startswith("https://wa.me/5521981036246?text="), "no celular abre o aplicativo (wa.me)")
+    confere(await pg.evaluate(f"!{ultima}.querySelector('.mini') && !!{ultima}.querySelector('.zap')"), "depois de enviar, fica só o botão")
+    # microfone
+    confere(await pg.locator("#quinto-chat .mic").is_visible(), "botão de microfone aparece")
+    await pg.locator("#quinto-chat .mic").click()
+    await pg.wait_for_timeout(500)
+    confere(await pg.locator("#quinto-chat .entrada textarea").input_value() == "apartamento de 2 quartos em Icaraí", "a fala vira texto no campo, para conferir antes de enviar")
+    await shot(pg, "v12c_microfone_celular")
+    # visitante não sabe quanto pode investir
+    await pg.locator("#quinto-chat .entrada textarea").fill("")
+    await falar(pg, "não sei quanto posso gastar")
+    f = "#quinto-chat .ficha:not(.mini) "
+    confere(await pg.locator(f + "[name=faixa]").last.input_value() == "nao_sei", "ficha já marca 'Ainda não sei'")
+    confere(await pg.locator(f + ".calc").last.is_visible(), "e mostra o link da calculadora")
+    confere(not pg.erros, f"sem erros de JavaScript {pg.erros}")
+    await ctx.close()
+
+
+async def cenario_sem_mic(nav):
+    print("\n[v1.2] Navegador sem reconhecimento de voz")
+    ctx = await nav.new_context(viewport={"width": 1280, "height": 900})
+    await ctx.add_init_script("delete window.webkitSpeechRecognition; delete window.SpeechRecognition;")
+    pg = await ctx.new_page()
+    await pg.goto(BASE + "/")
+    await pg.locator("#quinto-chat .lancador").click()
+    confere(await pg.locator("#quinto-chat .mic").is_hidden(), "sem suporte, o botão de microfone não aparece")
+    await ctx.close()
+
+
 async def cenario_tag(nav):
     print("\n[4] Tag GTM WhatsApp Inteligente v3")
+    if not os.path.exists(os.path.join(os.path.dirname(__file__), "..", "gtm", "whatsapp-inteligente-v3.html")):
+        print("  (pulado: a pasta gtm não está neste repositório)")
+        return
     pg = await nova_pagina(nav)
     await pg.goto(BASE + "/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa")
     await pg.wait_for_timeout(500)
@@ -362,7 +458,7 @@ async def cenario_conversa_longa(nav):
 async def main():
     async with async_playwright() as p:
         nav = await p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa):
+        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_sem_mic):
             try:
                 await c(nav)
             except Exception as e:  # noqa: BLE001

@@ -32,6 +32,9 @@ function claudeSimulado(corpo) {
   if (t.includes("vender")) return usar("abrir_ficha_venda", { tipo: "cobertura", bairro: "Icaraí", quartos: 3, vagas: 2, area: 150, aceita_permuta: "talvez" });
   if (t.includes("visita")) return usar("contato_imovel", { codigo: "QI1626", interesse: "visita", resumo: "Posso visitar no sábado de manhã." });
   if (t.includes("whatsapp")) return usar("encaminhar_whatsapp", { resumo: "Quero saber mais sobre o apartamento de Santa Rosa.", codigos: ["QI1626"] });
+  if (t.includes("lista de imóveis")) return falar("Encontrei 2 opções. Veja:\n#QI1626 — Santa Rosa, 2 quartos — R$ 400.000\n#QI1623 — Icaraí, 3 quartos — R$ 599.000\nSe nenhuma servir, o Antônio procura no mercado.");
+  if (t.includes("quanto custa")) return falar("O condomínio é R$ 1.128 e o IPTU é R$ 113. Se preferir, o telefone é (21) 98103-6246.");
+  if (t.includes("não sei quanto")) return usar("abrir_ficha_busca", { valor_indefinido: true });
   return falar("Posso ajudar a encontrar um imóvel. Qual bairro?");
 }
 
@@ -112,7 +115,9 @@ http
     if (im) return enviarLatin1(res, pagina("imovel.html", { imovel: im[1], caminho: u.pathname, balao: u.searchParams.get("balao") }));
     if (u.pathname === "/" ) return enviarLatin1(res, pagina("inicio.html", { balao: u.searchParams.get("balao") }));
     if (["/chat", "/saude"].includes(u.pathname)) {
-      const r = await worker.fetch(new Request(ORIGEM + req.url, { method: req.method, headers: req.headers, body: ["GET", "HEAD", "OPTIONS"].includes(req.method) ? undefined : corpo }), ENV);
+      // cada navegador de teste usa um "IP" próprio (o limite por IP vale por cenário)
+      const headers = { ...req.headers, "cf-connecting-ip": req.headers["x-teste-ip"] || req.headers["user-agent"] || "local" };
+      const r = await worker.fetch(new Request(ORIGEM + req.url, { method: req.method, headers, body: ["GET", "HEAD", "OPTIONS"].includes(req.method) ? undefined : corpo }), ENV);
       res.writeHead(r.status, Object.fromEntries(r.headers));
       return res.end(Buffer.from(await r.arrayBuffer()));
     }

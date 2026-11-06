@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { limparHistorico, cartoesCitados, dentroDoLimite } from "../worker/src/index.js";
+import worker, { limparHistorico, cartoesCitados, dentroDoLimite, separarLista } from "../worker/src/index.js";
 import { buscar, normalizar } from "../worker/src/catalogo.js";
-import { prefillBusca, prefillVenda, mensagemImovel, valorEmReais } from "../worker/src/fichas.js";
+import { prefillBusca, prefillVenda, mensagemImovel, valorEmReais, faixaDe, completarFicha } from "../worker/src/fichas.js";
 
 const CATALOGO = {
   gerado_em: "2026-11-03T00:00:00+00:00",
@@ -371,4 +371,82 @@ test("sem variáveis no painel, valem os padrões do código (OpenAI como ativo)
   const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), { OPENAI_API_KEY: "k" })).json();
   assert.equal(d.texto, "Olá!");
   assert.equal(chamadas.find((c) => c.url.includes("openai")).corpo.model, "gpt-6-luna");
+});
+
+// ---------------- versão 1.2 ----------------
+
+test("OpenAI: envia reasoning_effort none (GPT-6 exige para usar ferramentas); 'padrao' desliga", async () => {
+  let chamadas = simularPorUrl({ "api.openai.com": [oaiTexto("Olá!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), ENV_OPENAI);
+  assert.equal(chamadas[0].corpo.reasoning_effort, "none");
+  chamadas = simularPorUrl({ "api.openai.com": [oaiTexto("Olá!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), { ...ENV_OPENAI, OPENAI_ESFORCO: "padrao" });
+  assert.equal("reasoning_effort" in chamadas[0].corpo, false);
+  chamadas = simularPorUrl({ "api.deepseek.com": [oaiTexto("Olá!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), { ...ENV, PROVEDOR_ATIVO: "DEEPSEEK", DEEPSEEK_MODELO: "x", DEEPSEEK_API_KEY: "k" });
+  assert.equal("reasoning_effort" in chamadas[0].corpo, false);
+});
+
+test("lista de imóveis vira só cartões: frase antes, frase depois e texto completo para o histórico", async () => {
+  simularPorUrl({
+    "api.openai.com": [
+      oaiTexto("Encontrei 2 apartamentos em Icaraí. Veja algumas opções:\n\n#QI1622 — Icaraí, 3 quartos — R$ 690.000\n- **#QI1623** - 3 quartos com suíte\n\nSe nenhuma servir, o Antônio procura no mercado."),
+    ],
+  });
+  const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "Icaraí" }], pagina: {} }), ENV_OPENAI)).json();
+  assert.equal(d.texto, "Encontrei 2 apartamentos em Icaraí. Veja algumas opções:");
+  assert.equal(d.texto_depois, "Se nenhuma servir, o Antônio procura no mercado.");
+  assert.match(d.historico, /#QI1622/);
+  assert.deepEqual(d.imoveis.map((i) => i.codigo), ["QI1622", "QI1623"]);
+});
+
+test("separarLista: menção no meio da frase continua; código sem cartão continua", () => {
+  const cartoes = [{ codigo: "QI1622" }];
+  assert.deepEqual(separarLista("O #QI1622 tem varanda.", cartoes), { antes: "O #QI1622 tem varanda.", depois: "" });
+  assert.deepEqual(separarLista("Opções:\n#QI9999 - outro", cartoes), { antes: "Opções:\n#QI9999 - outro", depois: "" });
+  assert.deepEqual(separarLista("#QI1622 - Icaraí", cartoes), { antes: "Veja estas opções:", depois: "" });
+  assert.deepEqual(separarLista("Sem cartões", []), { antes: "Sem cartões", depois: "" });
+});
+
+test("faixas de valor da busca personalizada", () => {
+  assert.equal(faixaDe(300000), "ate300");
+  assert.equal(faixaDe(300001), "300a500");
+  assert.equal(faixaDe(800000), "500a800");
+  assert.equal(faixaDe(1200000), "800a1200");
+  assert.equal(faixaDe(1500000), "1200a2000");
+  assert.equal(faixaDe(2500000), "acima2000");
+  assert.equal(faixaDe(null), "");
+  assert.equal(prefillBusca({ preco_max: "300 mil" }).faixa, "ate300");
+  assert.equal(prefillBusca({ valor_indefinido: true }).faixa, "nao_sei");
+  assert.equal(prefillBusca({}).faixa, "");
+});
+
+test("fichas: completa tipo, bairro e quartos que o visitante disse e o modelo esqueceu", () => {
+  const v = completarFicha("venda", {}, "quero vender meu apartamento de 3 quartos em Santa Rosa", ["Icaraí"]);
+  assert.deepEqual({ t: v.tipo, b: v.bairro, q: v.quartos }, { t: "Apartamento", b: "Santa Rosa", q: 3 });
+  const b = completarFicha("busca", {}, "procuro casa em condomínio no Jardim Icaraí ou em Piratininga, dois quartos", []);
+  assert.deepEqual({ t: b.tipo, b: b.bairros, q: b.quartos_min }, { t: "Casa em condomínio", b: ["Jardim Icaraí", "Piratininga"], q: 2 });
+  // ambíguo: não chuta
+  assert.equal(completarFicha("venda", {}, "vendo meu apartamento e quero comprar uma casa", []).tipo, undefined);
+  // nunca sobrescreve o que o modelo mandou
+  assert.equal(completarFicha("venda", { tipo: "Cobertura" }, "meu apartamento", []).tipo, "Cobertura");
+});
+
+test("ficha de venda sai com o tipo mesmo se o modelo não mandar; busca leva a calculadora", async () => {
+  simularPorUrl({ "api.openai.com": [oaiUsar("c1", "abrir_ficha_venda", {}), oaiTexto("Perfeito!")] });
+  const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "quero vender meu apartamento" }], pagina: {} }), ENV_OPENAI)).json();
+  assert.equal(d.acao.dados.tipo, "Apartamento");
+  simularPorUrl({ "api.openai.com": [oaiUsar("c1", "abrir_ficha_busca", { valor_indefinido: true }), oaiTexto("Ok!")] });
+  const e = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "não sei quanto posso gastar" }], pagina: {} }), { ...ENV_OPENAI, CALCULADORA_URL: "https://www.quintoimoveis.com.br/nova-calc" })).json();
+  assert.equal(e.acao.dados.faixa, "nao_sei");
+  assert.equal(e.acao.calculadora, "https://www.quintoimoveis.com.br/nova-calc");
+});
+
+test("instruções: calculadora vem da configuração e o número do WhatsApp só sai se pedirem", async () => {
+  const chamadas = simularPorUrl({ "api.openai.com": [oaiTexto("Olá!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), { ...ENV_OPENAI, CALCULADORA_URL: "https://x.com.br/calc" });
+  const sys = chamadas[0].corpo.messages[0].content;
+  assert.match(sys, /https:\/\/x\.com\.br\/calc/);
+  assert.doesNotMatch(sys, /\{\{CALCULADORA\}\}/);
+  assert.equal((sys.match(/98103-6246/g) || []).length, 1);
 });

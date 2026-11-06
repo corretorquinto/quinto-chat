@@ -31,11 +31,15 @@ Visitante ──> chat no site ──> Worker (Cloudflare) ──> API de IA (An
 
 | Visitante | O que acontece | Onde cai no CRM |
 |---|---|---|
-| Quer **comprar** e achou algo | Busca no catálogo, mostra cartões com foto, preço e link | — |
+| Quer **comprar** e achou algo | Busca no catálogo; mostra uma frase curta e os cartões com foto, preço e link (sem repetir a lista em texto) | — |
 | Quer **visitar, propor ou tirar dúvida** sobre um imóvel | Ficha no chat → preenche o "Fale agora conosco" da página do imóvel | Leads, origem **Informações do Imóvel**, ligado ao imóvel |
 | Quer comprar e **não achou** | Ficha de **busca personalizada** (inclui imóvel para permuta) → preenche o Fale Conosco | Leads, origem **Fale Conosco** |
 | Quer **vender** | Ficha de **captação** (inclui "Aceita permuta?") → preenche o Fale Conosco | Leads, origem **Fale Conosco** |
-| Prefere **WhatsApp** | Pede nome e telefone → registra no WhatsApp Lead → abre o WhatsApp com o resumo | Leads, origem **WhatsApp Lead** |
+| Prefere **WhatsApp** | Pede nome e telefone na hora → botão "Enviar mensagem pelo WhatsApp" → registra no WhatsApp Lead → abre o WhatsApp com o resumo (no celular, o aplicativo; no computador, o WhatsApp Web) | Leads, origem **WhatsApp Lead** |
+
+Na busca personalizada, **quanto a pessoa pretende investir também é obrigatório**, escolhido por faixa (até R$ 300 mil, R$ 300–500 mil, R$ 500–800 mil, R$ 800 mil–1,2 milhão, R$ 1,2–2 milhões, acima de R$ 2 milhões, ou "Ainda não sei / simular financiamento", que mostra o link da calculadora). Se a pessoa já falou um valor na conversa, a faixa vem marcada.
+
+O visitante também pode **falar em vez de digitar**: o botão de microfone ao lado do campo de mensagem usa o reconhecimento de voz do próprio navegador (sem custo de API). A fala vira texto no campo e a pessoa confere antes de enviar. Onde o navegador não tem esse recurso, o botão não aparece.
 
 Nas fichas do chat, **nome, telefone e e-mail são obrigatórios**: o chat não deixa seguir sem eles, e o formulário nativo também exige. O chat leva a pessoa ao formulário do site já preenchido; ela **só digita o código de 4 números** (a proteção anti-robô do ImobiBrasil, que o chat não contorna) e toca em Enviar. Você recebe o e-mail de aviso do ImobiBrasil como sempre.
 
@@ -200,6 +204,8 @@ O chat envia ao `dataLayer` o evento `quinto_chat`, com o parâmetro `quinto_cha
 | `whatsapp` | Abriu o WhatsApp pelo chat (`quinto_chat_lead`: "sim" se o contato foi registrado) |
 | `formulario_indisponivel` | O formulário do site não carregou e o chat ofereceu o WhatsApp |
 | `limite_conversa` | A conversa chegou a 15 mensagens e foi entregue ao corretor |
+| `microfone` | Usou o microfone para falar em vez de digitar |
+| `calculadora` | Clicou em "Simule seu financiamento" na ficha de busca |
 | `balao_exibido` / `balao_clicado` / `balao_fechado` | Balão de convite mostrado, clicado ou fechado no X (`quinto_chat_balao`: imovel, tres_imoveis, saida, geral) |
 
 No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4** com os parâmetros acima. Marque `lead_enviado` e `whatsapp` como eventos-chave.
@@ -219,6 +225,9 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 | Cor do chat | atributo `data-cor` na linha do script (padrão #E40951, o rosa do logo) |
 | Mensagens do WhatsApp do site | `mensagem()` em `gtm/whatsapp-inteligente-v3.html` |
 | Limite de mensagens por visitante | `LIMITE` em `worker/src/index.js` (20 a cada 10 min) |
+| Endereço da calculadora de financiamento | variável de texto `CALCULADORA_URL` no painel da Cloudflare (Worker → Settings → Variables and Secrets). Sem ela, vale `/calculadora-financiamento` |
+| Faixas de valor da busca | `FAIXAS` em `worker/src/fichas.js` **e** em `widget/quinto-chat.js` (as duas listas precisam ser iguais) |
+| Raciocínio do modelo da OpenAI | variável `OPENAI_ESFORCO` (padrão `none`, exigido pelo GPT-6 para usar as ferramentas no chat) |
 
 ## Custos
 
@@ -242,5 +251,11 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Testes
 
-- `cd worker && npm run teste`: 13 testes do backend com a API simulada.
+- `cd worker && npm run teste`: 31 testes do backend com a API simulada.
 - `node testes/servidor-e2e.mjs` e, em outro terminal, `python testes/e2e.py`: 49 verificações de ponta a ponta no Chrome, com réplicas exatas dos formulários do ImobiBrasil (mesmos campos, validações e codificação ISO-8859-1). Cobrem as fichas, o preenchimento do Fale Conosco e do formulário do imóvel, o código anti-robô, o WhatsApp Lead e a tag v3.
+
+## Histórico de versões
+
+- **1.2 (06/11/2026):** lista de imóveis só em cartões; valores e telefones sem quebra de linha; o agente indica o botão do WhatsApp em vez de escrever o número; botão de microfone; valor obrigatório por faixas na busca, com link para a calculadora (endereço configurável em `CALCULADORA_URL`); as fichas completam tipo, bairro e quartos que o visitante disse; WhatsApp com nome e telefone direto e botão "Enviar mensagem pelo WhatsApp"; no computador abre o WhatsApp Web; textos mais naturais; a página de teste avisa quando está usando o agente de verdade.
+- **1.1 (06/11/2026):** envia `reasoning_effort: "none"` para a OpenAI (o GPT-6 recusava as ferramentas sem isso).
+- **1.0 (nov/2026):** primeira versão.

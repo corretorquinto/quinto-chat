@@ -9,6 +9,7 @@
  *   data-posicao      "esquerda" ou "direita" (padrão direita: o botão de WhatsApp do ImobiBrasil fica no canto esquerdo)
  *   data-whatsapp     número com DDI e DDD (padrão 5521981036246)
  *   data-balao-segundos  tempo até o balão de convite aparecer (padrão 20)
+ *   data-calculadora  endereço da calculadora de financiamento (padrão: o que vem do Worker, ou /calculadora-financiamento)
  *
  * Os contatos são entregues pelos formulários NATIVOS do ImobiBrasil, para cair no CRM:
  *   ficha de busca e ficha de venda -> Fale Conosco (/contato)
@@ -28,6 +29,7 @@
     posicao: (script && script.getAttribute("data-posicao")) === "esquerda" ? "esquerda" : "direita",
     whatsapp: (script && script.getAttribute("data-whatsapp")) || "5521981036246",
     balaoSegundos: Number(script && script.getAttribute("data-balao-segundos")) || 20,
+    calculadora: (script && script.getAttribute("data-calculadora")) || "https://www.quintoimoveis.com.br/calculadora-financiamento",
   };
   if (!cfg.api) {
     console.warn("[Quinto Chat] falta o atributo data-api na tag do script");
@@ -90,7 +92,8 @@
     '<div class="mensagens" aria-live="polite"></div>' +
     '<div class="sugestoes"></div>' +
     '<form class="entrada"><textarea rows="1" maxlength="800" placeholder="Escreva sua mensagem" aria-label="Sua mensagem"></textarea>' +
-    '<button type="submit" aria-label="Enviar">' + icone("enviar") + "</button></form>" +
+    '<button type="button" class="mic" aria-label="Falar em vez de digitar" title="Falar em vez de digitar" hidden>' + icone("mic") + "</button>" +
+    '<button type="submit" class="enviar" aria-label="Enviar">' + icone("enviar") + "</button></form>" +
     '<p class="aviso">Assistente com inteligência artificial; pode errar. Confirme os dados com o corretor.</p>' +
     "</section>";
 
@@ -103,7 +106,8 @@
     sugestoes = $(".sugestoes"),
     form = $(".entrada"),
     campo = $(".entrada textarea"),
-    botaoEnviar = $(".entrada button"),
+    botaoEnviar = $(".entrada .enviar"),
+    botaoMic = $(".entrada .mic"),
     dica = $(".dica"),
     guia = $(".guia");
 
@@ -194,10 +198,75 @@
     enviar();
   });
 
+  // ---------- microfone: o navegador transforma a fala em texto (sem custo de API) ----------
+  // Funciona no Chrome, Edge, Android e Safari recente. Onde não houver suporte, o botão não aparece.
+  var Reconhecimento = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var rec = null;
+  var gravando = false;
+  var placeholderPadrao = campo.placeholder;
+  if (Reconhecimento && window.isSecureContext !== false) botaoMic.hidden = false;
+
+  function avisoMic(texto) {
+    campo.placeholder = texto;
+    setTimeout(function () {
+      if (campo.placeholder === texto) campo.placeholder = placeholderPadrao;
+    }, 5000);
+  }
+  function pararMic() {
+    if (rec && gravando) {
+      try {
+        rec.stop();
+      } catch (e) {}
+    }
+  }
+  botaoMic.addEventListener("click", function () {
+    if (gravando) return pararMic();
+    var base = campo.value ? campo.value.replace(/\s*$/, " ") : "";
+    try {
+      rec = new Reconhecimento();
+    } catch (e) {
+      botaoMic.hidden = true;
+      return;
+    }
+    rec.lang = "pt-BR";
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = function (ev) {
+      var t = "";
+      for (var i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+      campo.value = (base + t).slice(0, 800);
+      ajustarAltura();
+    };
+    rec.onerror = function (ev) {
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") avisoMic("Permita o microfone no navegador para falar");
+      else if (ev.error === "no-speech") avisoMic("Não ouvi nada. Toque no microfone e fale de novo");
+      else if (ev.error !== "aborted") avisoMic("Não consegui ouvir agora. Pode digitar?");
+    };
+    rec.onend = function () {
+      gravando = false;
+      botaoMic.classList.remove("gravando");
+      botaoMic.setAttribute("aria-label", "Falar em vez de digitar");
+      if (campo.placeholder === "Pode falar, estou ouvindo...") campo.placeholder = placeholderPadrao;
+      if (!campo.disabled) campo.focus();
+    };
+    try {
+      rec.start();
+    } catch (e) {
+      return;
+    }
+    gravando = true;
+    botaoMic.classList.add("gravando");
+    botaoMic.setAttribute("aria-label", "Parar de gravar");
+    campo.placeholder = "Pode falar, estou ouvindo...";
+    medir("microfone");
+  });
+
   var ocupado = false;
   function enviar(textoPronto) {
     var texto = (textoPronto || campo.value).trim();
     if (!texto || ocupado) return;
+    pararMic();
     if ((estado.rodada || 0) >= LIMITE_CONVERSA) return encerrar();
     ocupado = true;
     estado.rodada = (estado.rodada || 0) + 1;
@@ -231,11 +300,19 @@
       })
       .then(function (d) {
         var acao = d.acao && d.acao.tipo ? d.acao : null;
-        if (d.texto && !d.erro) estado.historico.push({ role: "assistant", content: d.texto });
+        var completo = d.historico || d.texto;
+        if (completo && !d.erro) estado.historico.push({ role: "assistant", content: completo });
         if (d.erro) estado.historico.pop(); // permite tentar de novo sem repetir a pergunta
         if (acao && acao.tipo !== "whatsapp") medir("ficha_aberta", { quinto_chat_tipo: acao.tipo });
         if (d.limite) return encerrar();
-        adicionar({ de: "bot", texto: d.texto || "Desculpe, não consegui responder agora.", imoveis: d.imoveis || [], acao: acao });
+        var imoveis = d.imoveis || [];
+        adicionar({
+          de: "bot",
+          texto: d.texto || (imoveis.length ? "" : "Desculpe, não consegui responder agora."),
+          textoDepois: d.texto_depois || "",
+          imoveis: imoveis,
+          acao: acao,
+        });
       })
       .catch(function () {
         estado.historico.pop();
@@ -289,6 +366,8 @@
   function travar(sim) {
     campo.disabled = sim;
     botaoEnviar.disabled = sim;
+    botaoMic.disabled = sim;
+    if (sim) pararMic();
   }
 
   // ---------- desenho das mensagens ----------
@@ -306,14 +385,12 @@
   function desenhar(msg) {
     var bloco = document.createElement("div");
     bloco.className = "msg " + (msg.de === "eu" ? "eu" : "bot");
-    var balao = document.createElement("div");
-    balao.className = "balao";
-    balao.innerHTML = formatar(msg.texto);
-    bloco.appendChild(balao);
+    if (msg.texto) bloco.appendChild(balaoDe(msg.texto));
 
     (msg.imoveis || []).forEach(function (i) {
       bloco.appendChild(cartao(i));
     });
+    if (msg.textoDepois) bloco.appendChild(balaoDe(msg.textoDepois));
 
     var a = msg.acao;
     if (a && a.tipo === "whatsapp") {
@@ -324,6 +401,13 @@
     }
     lista.appendChild(bloco);
     return bloco;
+  }
+
+  function balaoDe(texto) {
+    var balao = document.createElement("div");
+    balao.className = "balao";
+    balao.innerHTML = formatar(texto);
+    return balao;
   }
 
   function cartao(i) {
@@ -566,37 +650,45 @@
   // ======================================================================
   // WhatsApp: registra no WhatsApp Lead nativo (CRM) e abre a conversa
   // ======================================================================
+  // Se já sabemos nome e telefone: só o botão. Se não: nome e telefone direto, com o botão logo abaixo.
   function botaoZap(texto, rotulo, secundario) {
     var caixa = document.createElement("div");
     caixa.className = "zap-caixa";
-    var b = document.createElement("button");
-    b.type = "button";
-    b.className = "zap" + (secundario ? " secundario" : "");
-    b.innerHTML = icone("whatsapp") + "<span>" + esc(rotulo || "Continuar no WhatsApp com o corretor") + "</span>";
-    b.addEventListener("click", function () {
-      var c = estado.contato;
-      if (c && c.nome && c.telefone) {
-        abrirWhatsApp(texto, c);
-        return;
-      }
-      if (caixa.querySelector(".mini")) return;
-      caixa.appendChild(miniZap(texto));
-    });
-    caixa.appendChild(b);
+    var c = estado.contato;
+    if (c && c.nome && c.telefone) caixa.appendChild(soBotaoZap(texto, rotulo, secundario));
+    else
+      caixa.appendChild(
+        miniZap(texto, function (f) {
+          caixa.replaceChild(soBotaoZap(texto, rotulo, secundario), f);
+        })
+      );
     return caixa;
   }
 
-  function miniZap(texto) {
+  function soBotaoZap(texto, rotulo, secundario) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "zap" + (secundario ? " secundario" : "");
+    b.innerHTML = icone("whatsapp") + "<span>" + esc(rotulo || "Enviar mensagem pelo WhatsApp") + "</span>";
+    b.addEventListener("click", function () {
+      abrirWhatsApp(texto, estado.contato || {});
+    });
+    return b;
+  }
+
+  function miniZap(texto, depois) {
     var f = document.createElement("form");
     f.className = "ficha mini";
     f.noValidate = true;
     var n = "qz" + ++seq + "-";
+    var c = estado.contato || {};
     f.innerHTML =
-      '<p class="ficha-sub">Para o corretor Antônio Quinto saber com quem está falando:</p>' +
-      campoTexto(n, "nome", "Nome", "text", "", 'autocomplete="given-name" maxlength="60"', true) +
-      campoTexto(n, "telefone", "Telefone / WhatsApp", "tel", "", 'autocomplete="tel-national" inputmode="tel" placeholder="(21) 99999-9999" maxlength="16"', true) +
+      '<p class="ficha-sub">Informe seu nome e telefone para o corretor Antônio Quinto saber com quem está falando:</p>' +
+      campoTexto(n, "nome", "Nome", "text", c.nome || "", 'autocomplete="name" maxlength="60"', true) +
+      campoTexto(n, "telefone", "Telefone / WhatsApp", "tel", c.telefone || "", 'autocomplete="tel-national" inputmode="tel" placeholder="(21) 99999-9999" maxlength="16"', true) +
       '<p class="erro-geral" role="alert"></p>' +
-      '<button type="submit" class="zap">' + icone("whatsapp") + "<span>Abrir o WhatsApp</span></button>";
+      '<button type="submit" class="zap">' + icone("whatsapp") + "<span>Enviar mensagem pelo WhatsApp</span></button>" +
+      '<p class="ajuda">O WhatsApp abre com a mensagem pronta. É só tocar em enviar.</p>';
     ligarMascara(f);
     f.addEventListener("submit", function (e) {
       e.preventDefault();
@@ -608,9 +700,24 @@
       estado.contato = Object.assign({}, estado.contato || {}, dados);
       salvar();
       abrirWhatsApp(texto, dados);
-      f.remove();
+      if (depois) depois(f);
+      else f.remove();
     });
     return f;
+  }
+
+  // Celular e tablet: wa.me abre o aplicativo. Computador: abre direto o WhatsApp Web.
+  function ehComputador() {
+    var ua = navigator.userAgent || "";
+    if (/Android|iPhone|iPad|iPod|Mobile|Windows Phone|IEMobile|Opera Mini/i.test(ua)) return false;
+    if (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1) return false; // iPad que se apresenta como Mac
+    return true;
+  }
+  function linkWhatsApp(msg) {
+    var t = encodeURIComponent(msg);
+    return ehComputador()
+      ? "https://web.whatsapp.com/send?phone=" + cfg.whatsapp + "&text=" + t
+      : "https://wa.me/" + cfg.whatsapp + "?text=" + t;
   }
 
   function abrirWhatsApp(texto, contato) {
@@ -619,7 +726,7 @@
     var msg = primeiro ? base.replace(/^(Olá, Antônio!)/, "$1 Aqui é " + primeiro + ".") : base;
     if (msg === base && primeiro) msg = "Aqui é " + primeiro + ". " + base;
     // window.open precisa acontecer no próprio clique (senão o navegador bloqueia)
-    window.open("https://wa.me/" + cfg.whatsapp + "?text=" + encodeURIComponent(msg), "_blank");
+    window.open(linkWhatsApp(msg), "_blank");
     var registrado = registrarWhatsLead(contato.nome, contato.telefone);
     medir("whatsapp", { quinto_chat_lead: registrado ? "sim" : "nao" });
   }
@@ -674,6 +781,26 @@
   // Fichas (busca, venda, interesse num imóvel)
   // ======================================================================
   var TIPOS = ["Apartamento", "Casa", "Casa em condomínio", "Cobertura", "Sala comercial", "Outro"];
+  // Mesmas chaves do Worker (fichas.js). Para mudar as faixas, mude nos dois lugares.
+  var FAIXAS = [
+    ["ate300", "Até R$ 300 mil", 300000],
+    ["300a500", "R$ 300 mil a R$ 500 mil", 500000],
+    ["500a800", "R$ 500 mil a R$ 800 mil", 800000],
+    ["800a1200", "R$ 800 mil a R$ 1,2 milhão", 1200000],
+    ["1200a2000", "R$ 1,2 milhão a R$ 2 milhões", 2000000],
+    ["acima2000", "Acima de R$ 2 milhões", Infinity],
+    ["nao_sei", "Ainda não sei / simular financiamento", null],
+  ];
+  function faixaDe(v) {
+    var n = typeof v === "number" ? v : valorEmReais(v);
+    if (!n) return "";
+    for (var i = 0; i < FAIXAS.length; i++) if (FAIXAS[i][2] !== null && n <= FAIXAS[i][2]) return FAIXAS[i][0];
+    return "";
+  }
+  function rotuloFaixa(chave) {
+    for (var i = 0; i < FAIXAS.length; i++) if (FAIXAS[i][0] === chave) return FAIXAS[i][1];
+    return "";
+  }
   var seq = 0;
 
   var FICHAS = {
@@ -686,8 +813,8 @@
         ["bairros", "Bairros", "texto", 'placeholder="Ex.: Icaraí, Santa Rosa" maxlength="200"'],
         ["quartos_min", "Quartos", "lista", [["1", "1 ou mais"], ["2", "2 ou mais"], ["3", "3 ou mais"], ["4", "4 ou mais"]], "Indiferente", "meia"],
         ["vagas_min", "Vagas", "lista", [["1", "1 ou mais"], ["2", "2 ou mais"], ["3", "3 ou mais"]], "Indiferente", "meia"],
-        ["preco_max", "Preço até (R$)", "texto", 'inputmode="numeric" placeholder="Ex.: 900 mil"', null, "meia"],
-        ["area_min", "Área mínima (m²)", "texto", 'inputmode="numeric"', null, "meia"],
+        ["faixa", "Quanto você pretende investir?", "faixa"],
+        ["area_min", "Área mínima (m²)", "texto", 'inputmode="numeric" placeholder="Opcional"'],
         ["suite", "Com suíte", "marca"],
         ["pagamento", "Pagamento", "lista", ["À vista", "Financiamento", "Permuta", "Ainda não sei"], "Não informado", "meia"],
         ["prazo", "Prazo para comprar", "lista", ["Até 3 meses", "De 3 a 6 meses", "Mais de 6 meses", "Só pesquisando"], "Não definido", "meia"],
@@ -753,6 +880,20 @@
       '<button type="button" class="zap secundario">' + icone("whatsapp") + "<span>Prefiro falar no WhatsApp</span></button>";
     ligarMascara(f);
 
+    var selFaixa = f.querySelector('[name="faixa"]');
+    if (selFaixa) {
+      var calc = f.querySelector(".calc");
+      calc.href = a.calculadora || cfg.calculadora;
+      var mostrarCalc = function () {
+        calc.hidden = selFaixa.value !== "nao_sei";
+      };
+      selFaixa.addEventListener("change", mostrarCalc);
+      mostrarCalc();
+      calc.addEventListener("click", function () {
+        medir("calculadora");
+      });
+    }
+
     f.querySelector(".zap").addEventListener("click", function () {
       var dados = coletar(f, def);
       var texto = "Olá, Antônio! Vim pelo assistente do site.\n" + compor(a, dados);
@@ -773,6 +914,7 @@
       if (digitos(dados.telefone).length < 10 || digitos(dados.telefone).length > 11) erros.telefone = "Informe o telefone com DDD.";
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(dados.email)) erros.email = "Informe um e-mail válido.";
       if ((a.tipo === "contato_imovel" || a.tipo === "contato_geral") && !dados.mensagem) erros.mensagem = "Escreva sua mensagem.";
+      if (a.tipo === "ficha_busca" && !dados.faixa) erros.faixa = "Escolha quanto pretende investir.";
       if (mostrarErros(f, erros)) return;
 
       estado.contato = { nome: dados.nome, telefone: dados.telefone, email: dados.email };
@@ -783,6 +925,7 @@
         id: a.id || "",
         url: a.tipo === "contato_imovel" ? a.url : "/contato",
         campos: { nome: dados.nome, email: dados.email, telefone: dados.telefone, mensagem: compor(a, dados) },
+        calc: a.tipo === "ficha_busca" && dados.faixa === "nao_sei" ? a.calculadora || cfg.calculadora : "",
         criado: Date.now(),
       };
       estado.historico.push({
@@ -793,7 +936,9 @@
       f.remove();
       adicionar({
         de: "bot",
-        texto: "Perfeito, " + dados.nome.split(" ")[0] + "! Estou abrindo o formulário do corretor já preenchido. **Falta só digitar o código de 4 números e tocar em Enviar.**",
+        texto:
+          "Perfeito, " + dados.nome.split(" ")[0] + "! Estou abrindo o formulário do corretor já preenchido. **Falta só digitar o código de 4 números e tocar em Enviar.**" +
+          (entrega.calc ? "\nSe quiser, simule seu financiamento enquanto isso: " + entrega.calc : ""),
       });
       gravar(CHAVE_ENTREGA, entrega);
       if (!aplicarEntrega()) {
@@ -814,7 +959,8 @@
       var nome = c[0], rotulo = c[1], tipo = c[2], extra = c[3], vazio = c[4], largura = c[5];
       var v = p[nome];
       var h;
-      if (tipo === "lista") h = campoLista(n, nome, rotulo, extra, v, vazio);
+      if (tipo === "faixa") h = campoFaixa(n, nome, rotulo, p.faixa || faixaDe(p.preco_max));
+      else if (tipo === "lista") h = campoLista(n, nome, rotulo, extra, v, vazio);
       else if (tipo === "marca") h = '<div class="campo marcar"><label><input type="checkbox" name="' + nome + '"' + (v ? " checked" : "") + "><span>" + esc(rotulo) + "</span></label></div>";
       else if (tipo === "area") h = '<div class="campo"><label for="' + n + nome + '">' + esc(rotulo) + '</label><textarea id="' + n + nome + '" name="' + nome + '" ' + (extra || 'rows="2"') + ">" + esc(v || "") + "</textarea>" + erroDe(n, nome) + "</div>";
       else {
@@ -851,6 +997,22 @@
     return h + "</select></div>";
   }
 
+  // Faixa de valor: obrigatória; quem escolhe "Ainda não sei" vê o link da calculadora
+  function campoFaixa(n, nome, rotulo, v) {
+    var h =
+      '<div class="campo"><label for="' + n + nome + '">' + esc(rotulo) + ' <b aria-hidden="true">*</b></label>' +
+      '<select id="' + n + nome + '" name="' + nome + '" required aria-describedby="' + n + nome + '-ajuda ' + n + nome + '-erro"><option value="">Selecione uma faixa</option>';
+    FAIXAS.forEach(function (fx) {
+      h += '<option value="' + fx[0] + '"' + (v === fx[0] ? " selected" : "") + ">" + esc(fx[1]) + "</option>";
+    });
+    return (
+      h + "</select>" +
+      '<small class="ajuda" id="' + n + nome + '-ajuda">Você define o valor. Ajuste se quiser.</small>' +
+      '<a class="calc" href="#" target="_blank" rel="noopener" hidden>Simule seu financiamento ›</a>' +
+      erroDe(n, nome) + "</div>"
+    );
+  }
+
   function erroDe(n, nome) {
     return '<small class="erro" data-erro="' + nome + '" id="' + n + nome + '-erro"></small>';
   }
@@ -882,11 +1044,9 @@
       if (d.vagas_min) p.push(d.vagas_min + "+ vagas");
       if (d.area_min) p.push("a partir de " + d.area_min + " m²");
       if (d.bairros) p.push("em " + d.bairros);
-      var pm = valorEmReais(d.preco_max);
-      if (pm) p.push("até " + reais(pm));
-      else if (d.preco_max) p.push("até " + d.preco_max);
       L.push("BUSCA PERSONALIZADA (pelo assistente do site)");
       L.push("Procuro: " + p.join(", "));
+      if (d.faixa) L.push("Quanto pretendo investir: " + (d.faixa === "nao_sei" ? "ainda não sei / quero simular financiamento" : rotuloFaixa(d.faixa)));
       if (d.pagamento) L.push("Pagamento: " + d.pagamento);
       if (d.permuta) L.push("Imóvel para permuta: " + d.permuta);
       if (d.prazo) L.push("Prazo: " + d.prazo);
@@ -1000,7 +1160,9 @@
       estado.historico.push({ role: "assistant", content: "[O formulário foi enviado ao Antônio.]" });
       adicionar({
         de: "bot",
-        texto: "Recebido! Sua mensagem foi enviada ao corretor Antônio Quinto, e ele vai falar com você em breve. Se tiver pressa, pode chamar no WhatsApp também.",
+        texto:
+          "Recebido! Sua mensagem foi enviada ao corretor Antônio Quinto, e ele vai falar com você em breve. Se tiver pressa, pode chamar no WhatsApp também." +
+          (e.calc ? "\nEnquanto isso, simule seu financiamento: " + e.calc : ""),
         acao: { tipo: "whatsapp", texto: "Olá, Antônio! Acabei de enviar uma mensagem pelo site." },
         zapRotulo: "Chamar o corretor no WhatsApp",
         zapSecundario: true,
@@ -1089,7 +1251,10 @@
   function formatar(texto) {
     var h = esc(texto || "");
     h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-    h = h.replace(/(https:\/\/(?:www\.)?quintoimoveis\.com\.br[^\s<)]*)/g, function (u) {
+    // "R$ 359.000", "R$ 1,2 milhão" e telefones não quebram no meio
+    h = h.replace(/R\$\s?\d+(?:[.,]\d+)*(?:\s(?:mil|milh[ãa]o|milh[õo]es))?/g, '<span class="nw">$&</span>');
+    h = h.replace(/\(?\b\d{2}\)?\s?9?\d{4}-\d{4}\b/g, '<span class="nw">$&</span>');
+    h = h.replace(/(https:\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s<)]*)/gi, function (u) {
       var limpo = u.replace(/[.,;:!?]+$/, "");
       return '<a href="' + limpo + '" target="_blank" rel="noopener">' + limpo + "</a>" + u.slice(limpo.length);
     });
@@ -1121,6 +1286,7 @@
       x: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
       lupa: '<circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
       enviar: '<path d="M4 12l15-7-5 15-2.5-6.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>',
+      mic: '<rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
       casa: '<path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-5H9v5H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
       whatsapp: '<path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 8.3c.2-.4.4-.4.7-.4h.5c.2 0 .4 0 .5.4l.7 1.6c.1.2 0 .4-.1.6l-.5.6c-.1.1-.2.3 0 .5.5.9 1.3 1.7 2.3 2.2.2.1.4.1.5-.1l.6-.7c.2-.2.4-.2.6-.1l1.5.7c.2.1.4.2.4.4 0 .5-.1 1.1-.6 1.5-.5.4-1.4.7-2.4.4-1.3-.4-2.9-1.4-4-2.8-.9-1.1-1.4-2.3-1.4-3.1 0-.7.3-1.3.7-1.7z" fill="currentColor"/>',
     }[nome];
@@ -1208,6 +1374,13 @@
       ".entrada textarea:focus{border-color:" + c + "}" +
       ".entrada button{width:42px;height:42px;flex:none;border:0;border-radius:50%;background:" + c + ";color:#fff;display:grid;place-items:center;cursor:pointer}" +
       ".entrada button:disabled{opacity:.5;cursor:default}" +
+      ".entrada .mic{background:#fff;color:" + c + ";border:1.5px solid " + c + "}" +
+      ".entrada .mic.gravando{background:" + c + ";color:#fff;animation:gravar 1.2s ease-in-out infinite}" +
+      "@keyframes gravar{0%,100%{box-shadow:0 0 0 0 " + rgba(c, 0.45) + "}50%{box-shadow:0 0 0 8px " + rgba(c, 0) + "}}" +
+      ".nw{white-space:nowrap}" +
+      ".ajuda{margin:0;font-size:12px;line-height:1.35;color:#6b7785}" +
+      ".mini .ajuda{text-align:center}" +
+      ".calc{font-size:13px;font-weight:600;color:" + c + ";text-decoration:underline;margin-top:2px}" +
       ".aviso{margin:0;padding:6px 14px 10px;background:#fff;font-size:11.5px;line-height:1.35;color:#6b7785}" +
       ".ficha{background:#fff;border:1px solid #d5dbe1;border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}" +
       ".ficha.mini{padding:12px;border-color:#bfe5cf;background:#f7fcf9}" +

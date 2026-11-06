@@ -28,7 +28,7 @@ import {
   cartao,
   resumoDoCatalogo,
 } from "./catalogo.js";
-import { prefillBusca, prefillVenda, mensagemImovel } from "./fichas.js";
+import { prefillBusca, prefillVenda, mensagemImovel, completarFicha } from "./fichas.js";
 import { chamarModelo, provedoresConfigurados } from "./provedores.js";
 
 const MAX_MENSAGENS = 16; // histórico enviado ao modelo
@@ -95,7 +95,11 @@ const FERRAMENTAS = [
         suite: { type: "boolean" },
         vagas_min: { type: "integer" },
         area_min: { type: "number" },
-        preco_max: { type: "number", description: "Em reais" },
+        preco_max: { type: "number", description: "Valor máximo que o visitante disse que pode investir, em reais. Só se ele informou." },
+        valor_indefinido: {
+          type: "boolean",
+          description: "true se o visitante disse que não sabe quanto pode investir ou que quer simular o financiamento",
+        },
         pagamento: { type: "string", description: "À vista, Financiamento, Permuta ou Ainda não sei" },
         permuta: { type: "string", description: "Se vai dar um imóvel na permuta, qual é (tipo, bairro)" },
         prazo: { type: "string", description: "Até 3 meses, De 3 a 6 meses, Mais de 6 meses ou Só pesquisando" },
@@ -187,6 +191,9 @@ export const PADROES = {
   ANTHROPIC_MODELO: "claude-haiku-5-5",
   DEEPSEEK_MODELO: "deepseek-flash",
   GEMINI_MODELO: "gemini-2.5-flash-lite",
+  // Calculadora indicada na ficha de busca ("Ainda não sei") e nas respostas do agente.
+  // Para trocar pela calculadora nova, crie a variável CALCULADORA_URL no painel da Cloudflare.
+  CALCULADORA_URL: "https://www.quintoimoveis.com.br/calculadora-financiamento",
 };
 
 export default {
@@ -284,7 +291,7 @@ export async function atender(env, mensagens, pagina, conversaInfo = {}) {
   const imovelDaPagina = acharPorUrl(imoveis, pagina.url);
   const sistema = {
     // Parte fixa primeiro: entra no cache de prompt e barateia as chamadas seguintes
-    fixo: `${INSTRUCOES}\n\n${resumoDoCatalogo(imoveis)}`,
+    fixo: `${INSTRUCOES.split("{{CALCULADORA}}").join(env.CALCULADORA_URL || PADROES.CALCULADORA_URL)}\n\n${resumoDoCatalogo(imoveis)}`,
     variavel: contextoDaPagina(pagina, imovelDaPagina, conversaInfo),
   };
 
@@ -298,7 +305,17 @@ export async function atender(env, mensagens, pagina, conversaInfo = {}) {
       console.log(
         JSON.stringify({ evento: "chat", provedor: cfg.nome, modelo: cfg.modelo, ferramentas: r.usadas, acao: r.acao ? r.acao.tipo : null, tokens: r.uso })
       );
-      return { texto: r.texto, imoveis: cartoesCitados(r.texto, imoveis, imovelDaPagina), acao: r.acao };
+      const cartoes = cartoesCitados(r.texto, imoveis, imovelDaPagina);
+      const partes = separarLista(r.texto, cartoes);
+      // texto: antes dos cartões; texto_depois: depois deles; historico: o texto completo,
+      // que volta ao modelo na próxima mensagem (para ele saber quais imóveis mostrou)
+      return {
+        texto: partes.antes,
+        ...(partes.depois ? { texto_depois: partes.depois } : {}),
+        ...(partes.antes !== r.texto ? { historico: r.texto } : {}),
+        imoveis: cartoes,
+        acao: r.acao,
+      };
     } catch (e) {
       ultimoErro = e;
       console.log(JSON.stringify({ evento: "falha_provedor", provedor: cfg.nome, erro: String(e && e.message || e).slice(0, 200) }));
@@ -309,6 +326,10 @@ export async function atender(env, mensagens, pagina, conversaInfo = {}) {
 
 async function conversar(cfg, sistema, mensagens, imoveis, env) {
   const conversa = mensagens.map((m) => ({ role: m.role, texto: m.content }));
+  const contexto = {
+    textoVisitante: mensagens.filter((m) => m.role === "user").map((m) => m.content).join("\n"),
+    bairros: [...new Set(imoveis.map((i) => i.bairro).filter(Boolean))],
+  };
   const usadas = [];
   const uso = { entrada: 0, cache: 0, saida: 0 };
   let acao = null;
@@ -335,7 +356,7 @@ async function conversar(cfg, sistema, mensagens, imoveis, env) {
     conversa.push({ role: "assistant", texto: resp.texto, chamadas: resp.chamadas });
     const resultados = resp.chamadas.map((p) => {
       usadas.push(p.nome);
-      const saida = executarFerramenta(p.nome, p.args || {}, imoveis, env);
+      const saida = executarFerramenta(p.nome, p.args || {}, imoveis, env, contexto);
       if (saida.acao) acao = saida.acao; // vale a última ação pedida
       return { id: p.id, nome: p.nome, conteudo: JSON.stringify(saida.paraModelo) };
     });
@@ -347,9 +368,9 @@ async function conversar(cfg, sistema, mensagens, imoveis, env) {
 }
 
 const AVISO_FICHA =
-  "A ficha já está na tela do visitante, preenchida com o que ele contou. Diga em uma ou duas frases que ele só precisa conferir, completar nome, telefone e e-mail e tocar em Enviar; depois o site abre o formulário do Antônio já preenchido, e ele só digita o código de 4 números. Lembre que, se preferir, pode chamar no WhatsApp.";
+  "A ficha aparece logo abaixo da sua resposta, preenchida com o que o visitante contou. Diga, de forma natural e em uma ou duas frases, que ele só precisa conferir, completar o que faltar e tocar em Enviar; o site abre o formulário do Antônio já preenchido, e ele só digita o código de 4 números. Se quiser, lembre que ele pode tocar em \"Prefiro falar no WhatsApp\". Não escreva o número do WhatsApp e não use a expressão \"está na tela\".";
 
-export function executarFerramenta(nome, entrada, imoveis, env) {
+export function executarFerramenta(nome, entrada, imoveis, env, contexto = {}) {
   if (nome === "buscar_imoveis") {
     const r = buscar(imoveis, entrada);
     if (r.total === 0) {
@@ -363,10 +384,15 @@ export function executarFerramenta(nome, entrada, imoveis, env) {
     return { paraModelo: i ? detalhes(i) : { erro: `Imóvel ${entrada.codigo} não encontrado no catálogo atual.` } };
   }
   if (nome === "abrir_ficha_busca") {
-    return { acao: { tipo: "ficha_busca", dados: prefillBusca(entrada) }, paraModelo: { ok: true, aviso: AVISO_FICHA } };
+    const e = completarFicha("busca", entrada, contexto.textoVisitante, contexto.bairros);
+    return {
+      acao: { tipo: "ficha_busca", dados: prefillBusca(e), calculadora: env.CALCULADORA_URL || PADROES.CALCULADORA_URL },
+      paraModelo: { ok: true, aviso: AVISO_FICHA },
+    };
   }
   if (nome === "abrir_ficha_venda") {
-    return { acao: { tipo: "ficha_venda", dados: prefillVenda(entrada) }, paraModelo: { ok: true, aviso: AVISO_FICHA } };
+    const e = completarFicha("venda", entrada, contexto.textoVisitante, contexto.bairros);
+    return { acao: { tipo: "ficha_venda", dados: prefillVenda(e) }, paraModelo: { ok: true, aviso: AVISO_FICHA } };
   }
   if (nome === "contato_imovel") {
     const i = acharPorCodigo(imoveis, entrada.codigo);
@@ -383,7 +409,7 @@ export function executarFerramenta(nome, entrada, imoveis, env) {
       paraModelo: {
         ok: true,
         aviso:
-          "O pedido já está na tela do visitante. Diga em uma ou duas frases que ele completa nome, telefone e e-mail e toca em Enviar; o site abre o formulário do imóvel já preenchido e ele só digita o código de 4 números. O Antônio responde em seguida.",
+          "O pedido aparece logo abaixo da sua resposta. Diga, de forma natural e em uma ou duas frases, que ele completa nome, telefone e e-mail e toca em Enviar; o site abre o formulário do imóvel já preenchido e ele só digita o código de 4 números. O Antônio responde em seguida. Não use a expressão \"está na tela\".",
       },
     };
   }
@@ -401,7 +427,7 @@ export function executarFerramenta(nome, entrada, imoveis, env) {
       paraModelo: {
         ok: true,
         aviso:
-          "O botão do WhatsApp já está na tela. Diga que, ao tocar nele, o visitante informa nome e telefone e a conversa abre com o resumo pronto.",
+          "Logo abaixo da sua resposta aparecem os campos de nome e telefone e o botão \"Enviar mensagem pelo WhatsApp\". Responda em uma frase natural e cordial, por exemplo: \"Claro! É só informar seu nome e telefone abaixo e tocar em Enviar mensagem pelo WhatsApp: a conversa com o corretor Antônio Quinto abre com a mensagem pronta.\" Não escreva o número e não diga que o botão \"está na tela\".",
       },
     };
   }
@@ -437,6 +463,26 @@ export function cartoesCitados(texto, imoveis, imovelDaPagina) {
     if (cartoes.length >= MAX_CARTOES) break;
   }
   return cartoes;
+}
+
+// Tira do texto as linhas que só listam imóveis que viraram cartão (o cartão já mostra
+// foto, bairro, quartos e preço). Devolve o que vem antes e o que vem depois da lista.
+export function separarLista(texto, cartoes) {
+  const codigos = new Set((cartoes || []).map((c) => String(c.codigo).toUpperCase()));
+  const linhas = String(texto || "").split("\n");
+  const ehItem = (l) => {
+    const m = l.trim().replace(/^(?:[-*•–—]|\d+[.)])\s*/, "").replace(/^\*\*/, "").match(/^#([A-Za-z]{0,4}\d{2,8})\b/);
+    return !!(m && codigos.has(m[1].toUpperCase()));
+  };
+  const itens = linhas.map(ehItem);
+  const primeiro = itens.indexOf(true);
+  if (!codigos.size || primeiro < 0) return { antes: String(texto || "").trim(), depois: "" };
+  const ultimo = itens.lastIndexOf(true);
+  const limpar = (ls) => ls.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const antes = limpar(linhas.slice(0, primeiro));
+  const meio = linhas.slice(primeiro, ultimo + 1).filter((l, i) => !itens[primeiro + i] && l.trim());
+  const depois = limpar([...meio, ...linhas.slice(ultimo + 1)]);
+  return { antes: antes || "Veja estas opções:", depois };
 }
 
 export function limparHistorico(lista) {

@@ -19,7 +19,7 @@
 
 export const CONHECIDOS = {
   ANTHROPIC: { formato: "anthropic", url: "https://api.anthropic.com/v1/messages" },
-  OPENAI: { formato: "openai", url: "https://api.openai.com/v1/chat/completions", campoLimite: "max_completion_tokens" },
+  OPENAI: { formato: "openai", url: "https://api.openai.com/v1/chat/completions", campoLimite: "max_completion_tokens", esforco: "none" },
   DEEPSEEK: { formato: "openai", url: "https://api.deepseek.com/chat/completions" },
   GEMINI: { formato: "openai", url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" },
   GROQ: { formato: "openai", url: "https://api.groq.com/openai/v1/chat/completions" },
@@ -41,6 +41,10 @@ export function configDoProvedor(env, nome) {
     modelo: env[`${n}_MODELO`] || legado,
     chave: env[`${n}_API_KEY`],
     campoLimite: env[`${n}_CAMPO_LIMITE`] || base.campoLimite || "max_tokens",
+    // Esforço de raciocínio (só formato openai). Os modelos GPT-6 não aceitam ferramentas no
+    // /chat/completions com raciocínio ligado; "none" desliga. Variável no painel: OPENAI_ESFORCO
+    // ("padrao" = não enviar o parâmetro).
+    esforco: env[`${n}_ESFORCO`] || base.esforco || "",
   };
   const faltando = ["url", "modelo", "chave"].filter((k) => !cfg[k]);
   if (faltando.length) cfg.erro = `provedor ${n} sem ${faltando.join(", ")}`;
@@ -136,6 +140,7 @@ async function chamarOpenAI(cfg, { sistema, mensagens, ferramentas, forcarTexto,
       function: { name: f.nome, description: f.descricao, parameters: f.parametros },
     })),
     tool_choice: forcarTexto ? "none" : "auto",
+    ...(cfg.esforco && cfg.esforco !== "padrao" ? { reasoning_effort: cfg.esforco } : {}),
   };
   const r = await postar(cfg, { Authorization: `Bearer ${cfg.chave}` }, corpo);
   const msg = (r.choices && r.choices[0] && r.choices[0].message) || {};

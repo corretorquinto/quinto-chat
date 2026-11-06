@@ -10,6 +10,8 @@ ORIGENS_PERMITIDAS = "https://www.quintoimoveis.com.br,https://quintoimoveis.com
 CATALOGO_URL = "https://corretorquinto.github.io/quinto-chat/catalogo/catalogo.json"
 # Número do WhatsApp com DDI e DDD, só dígitos
 WHATSAPP = "5521981036246"
+# Calculadora de financiamento indicada na busca ("Ainda não sei") e nas respostas
+CALCULADORA_URL = "https://www.quintoimoveis.com.br/calculadora-financiamento"
 
 # =====================================================================
 # MODELO DE IA: troque de provedor mudando só estas linhas
