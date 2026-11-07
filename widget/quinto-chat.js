@@ -292,6 +292,9 @@
         pagina: { url: location.href, titulo: document.title },
         rodada: estado.rodada,
         contato: !!(estado.chamou || estado.contato),
+        fichas: fichasAbertas().map(function (v) {
+          return v.acao.tipo;
+        }),
       }),
       signal: controle ? controle.signal : undefined,
     })
@@ -319,7 +322,7 @@
         adicionar({
           de: "bot",
           texto: "Não consegui me conectar agora. Você pode falar direto com o corretor Antônio Quinto pelo WhatsApp, o atendimento é 24 horas.",
-          acao: { tipo: "whatsapp", texto: "Olá, Antônio! Vim pelo site e gostaria de atendimento." },
+          acao: { tipo: "whatsapp", texto: textoZapPadrao() },
         });
       })
       .then(function () {
@@ -371,7 +374,32 @@
   }
 
   // ---------- desenho das mensagens ----------
+  // fichas mostradas e ainda não enviadas
+  function fichasAbertas() {
+    return estado.vistas.filter(function (v) {
+      return v.acao && FICHAS[v.acao.tipo] && v.acao.tipo !== "contato_geral" && !v.acao.feito;
+    });
+  }
+  function chaveFicha(a) {
+    return a.tipo + ":" + (a.codigo || a.id || "");
+  }
+
   function adicionar(msg) {
+    // uma ficha de cada vez: a nova (com os dados mais recentes) substitui a anterior do mesmo tipo
+    if (msg.acao && FICHAS[msg.acao.tipo]) {
+      var chave = chaveFicha(msg.acao);
+      fichasAbertas().forEach(function (v) {
+        if (chaveFicha(v.acao) !== chave) return;
+        v.acao.feito = true;
+        v.acao.substituida = true;
+      });
+      var velhas = lista.querySelectorAll('.ficha[data-chave="' + chave.replace(/"/g, "") + '"]');
+      for (var k = 0; k < velhas.length; k++) {
+        var bloco0 = velhas[k].closest(".msg");
+        velhas[k].remove();
+        if (bloco0) bloco0.classList.remove("largo");
+      }
+    }
     estado.vistas.push(msg);
     if (estado.vistas.length > 60) estado.vistas = estado.vistas.slice(-60);
     if (estado.historico.length > 40) estado.historico = estado.historico.slice(-40);
@@ -422,7 +450,7 @@
     el.innerHTML =
       (i.foto ? '<img src="' + esc(i.foto) + '" alt="" loading="lazy">' : '<div class="sem-foto">' + icone("casa") + "</div>") +
       '<div class="info"><span class="codigo">#' + esc(i.codigo) + "</span>" +
-      '<strong class="titulo">' + esc(i.titulo) + "</strong>" +
+      '<strong class="titulo">' + esc(String(i.titulo || "").replace(/\s*[|\u2013\u2014-]\s*Quinto(\s+Im[óo]veis)?\s*$/i, "")) + "</strong>" +
       '<span class="detalhes">' + esc(detalhes) + "</span>" +
       '<span class="preco">' + (i.preco ? reais(i.preco) : "Consulte") + "</span></div>";
     el.addEventListener("click", function () {
@@ -440,9 +468,14 @@
     return d;
   }
 
-  function mostrarSugestoes(lista) {
-    if (estado.historico.length && !lista) return;
-    var opcoes = lista ? lista : naPaginaDeImovel
+  function mostrarSugestoes(dadas) {
+    if (estado.historico.length && !dadas) return;
+    // com uma ficha (ou nome e telefone do WhatsApp) aberta na conversa, as sugestões atrapalham
+    if (lista.querySelector(".ficha")) {
+      sugestoes.innerHTML = "";
+      return;
+    }
+    var opcoes = dadas ? dadas : naPaginaDeImovel
       ? ["Qual o valor do condomínio?", "Quero agendar uma visita", "Tem opções parecidas?", "Quero vender meu imóvel"]
       : ["Apartamento em Icaraí", "Não achei o imóvel que procuro", "Quero vender meu imóvel", "Falar com o corretor"];
     sugestoes.innerHTML = "";
@@ -720,9 +753,18 @@
       : "https://wa.me/" + cfg.whatsapp + "?text=" + t;
   }
 
+  function linkAbsoluto(u) {
+    return /^https?:\/\//.test(u) ? u : location.origin + u;
+  }
+  function textoZapPadrao() {
+    return naPaginaDeImovel
+      ? "Olá, Antônio! Vim pelo site e tenho interesse neste imóvel:\n" + location.origin + location.pathname
+      : "Olá, Antônio! Vim pelo site e gostaria de atendimento.";
+  }
+
   function abrirWhatsApp(texto, contato) {
     var primeiro = String(contato.nome || "").split(" ")[0];
-    var base = texto || "Olá, Antônio! Vim pelo site e gostaria de atendimento.";
+    var base = texto || textoZapPadrao();
     var msg = primeiro ? base.replace(/^(Olá, Antônio!)/, "$1 Aqui é " + primeiro + ".") : base;
     if (msg === base && primeiro) msg = "Aqui é " + primeiro + ". " + base;
     // window.open precisa acontecer no próprio clique (senão o navegador bloqueia)
@@ -864,6 +906,7 @@
     var f = document.createElement("form");
     f.className = "ficha";
     f.noValidate = true;
+    f.setAttribute("data-chave", chaveFicha(a).replace(/"/g, ""));
 
     var titulo = def.titulo + (a.tipo === "contato_imovel" && a.codigo ? " #" + esc(a.codigo) : "");
     f.innerHTML =
@@ -897,13 +940,15 @@
     f.querySelector(".zap").addEventListener("click", function () {
       var dados = coletar(f, def);
       var texto = "Olá, Antônio! Vim pelo assistente do site.\n" + compor(a, dados);
-      if (dados.nome.length >= 2 && digitos(dados.telefone).length >= 10) {
-        estado.contato = { nome: dados.nome, telefone: dados.telefone, email: dados.email };
-        salvar();
-        abrirWhatsApp(texto, dados);
-      } else if (!f.querySelector(".mini")) {
-        f.appendChild(miniZap(texto));
-      }
+      // contato sobre um imóvel: o link dele vai junto, para o corretor saber de qual se trata
+      if (a.tipo === "contato_imovel" && a.url) texto += "\n" + linkAbsoluto(a.url);
+      var erros = {};
+      if (dados.nome.length < 2) erros.nome = "Informe seu nome para abrir o WhatsApp.";
+      if (digitos(dados.telefone).length < 10) erros.telefone = "Informe o telefone com DDD para abrir o WhatsApp.";
+      if (mostrarErros(f, erros)) return;
+      estado.contato = { nome: dados.nome, telefone: dados.telefone, email: dados.email };
+      salvar();
+      abrirWhatsApp(texto, dados);
     });
 
     f.addEventListener("submit", function (e) {

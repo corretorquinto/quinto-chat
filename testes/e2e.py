@@ -262,6 +262,88 @@ async def cenario_v12(nav):
     await ctx.close()
 
 
+def ultimo_pedido():
+    with urllib.request.urlopen(BASE + "/__ultimo") as r:
+        return json.loads(r.read())
+
+
+async def cenario_v13(nav):
+    print("\n[v1.3] Ficha não repete, sugestões, WhatsApp pela ficha, título, resumo do WhatsApp")
+    ctx = await nav.new_context(viewport={"width": 390, "height": 800}, user_agent=CELULAR, is_mobile=True, has_touch=True,
+                                extra_http_headers={"X-Teste-IP": "10.9.9.13"})
+    await ctx.add_init_script(INIT)
+    pg = await ctx.new_page()
+    pg.erros = []
+    pg.on("pageerror", lambda e: pg.erros.append(str(e)))
+    await pg.goto(BASE + "/")
+    # título do cartão sem "| Quinto"
+    await falar(pg, "me mostra a lista de imóveis")
+    titulos = await pg.evaluate(f"[...{SR}.querySelectorAll('.imovel .titulo')].map(e=>e.textContent)")
+    confere(titulos and all("| Quinto" not in t for t in titulos), f"títulos sem '| Quinto' ({titulos})")
+    # ficha aberta; o "modelo" abre a mesma ficha de novo: fica só uma
+    await falar(pg, "não achei o que procuro")
+    confere(await pg.evaluate(f"{SR}.querySelectorAll('.ficha:not(.mini)').length") == 1, "uma ficha aberta")
+    await falar(pg, "obrigado, vou encerrar")
+    confere(ultimo_pedido().get("fichas") == ["ficha_busca"], f"o chat avisa o servidor que a ficha está aberta ({ultimo_pedido().get('fichas')})")
+    confere(await pg.evaluate(f"{SR}.querySelectorAll('.ficha:not(.mini)').length") == 1, "a ficha repetida substitui a anterior (continua uma só)")
+    confere(await pg.locator("#quinto-chat .ficha [name=bairros]").input_value() == "Icaraí", "a ficha que fica é a mais recente")
+    confere(await pg.evaluate(f"{SR}.querySelector('.sugestoes').children.length") == 0, "sem sugestões por cima da ficha")
+    # "Prefiro falar no WhatsApp" usa nome e telefone da própria ficha
+    f = "#quinto-chat .ficha "
+    await pg.locator(f + "[name=nome]").fill("Antônio Barbosa")
+    await pg.locator(f + ".zap").click()
+    confere(await pg.evaluate(f"{SR}.querySelectorAll('.mini').length") == 0, "não abre outro quadro de nome e telefone")
+    erro = await pg.locator(f + "[data-erro=telefone]").inner_text()
+    confere("para abrir o WhatsApp" in erro, f"destaca o telefone na própria ficha ({erro})")
+    confere(await pg.evaluate(f"{SR}.activeElement && {SR}.activeElement.name") == "telefone", "cursor vai para o telefone")
+    confere(await pg.locator(f + "[data-erro=email]").inner_text() == "", "não cobra o e-mail para o WhatsApp")
+    await pg.locator(f + "[name=telefone]").fill("21 97777-6666")
+    await pg.locator(f + ".zap").click()
+    await pg.wait_for_timeout(300)
+    abertos = await pg.evaluate("window.__abertos")
+    confere(len(abertos) == 1 and "Aqui%20%C3%A9%20Ant%C3%B4nio" in abertos[0], "abre o WhatsApp com o nome da ficha")
+    # recarregar a página: a ficha substituída não volta
+    await pg.reload()
+    await pg.locator("#quinto-chat .lancador").click()
+    await pg.wait_for_timeout(300)
+    confere(await pg.evaluate(f"{SR}.querySelectorAll('.ficha:not(.mini)').length") == 1, "depois de recarregar, continua uma ficha só")
+    await shot(pg, "v13a_ficha_unica_celular")
+    confere(not pg.erros, f"sem erros de JavaScript {pg.erros}")
+    await ctx.close()
+
+    # WhatsApp sem o "quero falar com o corretor"
+    ctx = await nav.new_context(viewport={"width": 390, "height": 800}, user_agent=CELULAR, is_mobile=True, has_touch=True,
+                                extra_http_headers={"X-Teste-IP": "10.9.9.14"})
+    await ctx.add_init_script(INIT)
+    pg = await ctx.new_page()
+    await pg.goto(BASE + "/")
+    await falar(pg, "só oi")
+    await pg.locator("#quinto-chat .mini [name=nome]").last.fill("Maria")
+    await pg.locator("#quinto-chat .mini [name=telefone]").last.fill("21 97777-6666")
+    await pg.locator("#quinto-chat .mini .zap").last.click()
+    await pg.wait_for_timeout(300)
+    from urllib.parse import unquote
+    msg = unquote((await pg.evaluate("window.__abertos"))[0].split("text=")[1])
+    confere(msg == "Olá, Antônio! Aqui é Maria. Vim pelo assistente do site e gostaria de atendimento.", f"mensagem do WhatsApp limpa ({msg!r})")
+    # na página de um imóvel: o código e o link vão junto
+    await pg.goto(BASE + "/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa")
+    await pg.evaluate("window.__abertos = []")
+    await falar(pg, "só oi")
+    await pg.locator("#quinto-chat .zap").last.click()
+    await pg.wait_for_timeout(300)
+    msg = unquote((await pg.evaluate("window.__abertos"))[0].split("text=")[1])
+    confere("#QI1626" in msg and "/imovel/4383031/" in msg, f"na página do imóvel, a mensagem leva o código e o link ({msg!r})")
+    # ficha de contato do imóvel -> WhatsApp: leva o link do imóvel
+    await pg.evaluate("window.__abertos = []")
+    await falar(pg, "quero agendar uma visita")
+    f = "#quinto-chat .ficha:not(.mini) "
+    await pg.locator(f + ".zap").last.click()
+    await pg.wait_for_timeout(300)
+    msg = unquote((await pg.evaluate("window.__abertos"))[0].split("text=")[1])
+    confere("#QI1626" in msg and "/imovel/4383031/" in msg, f"ficha do imóvel pelo WhatsApp leva código e link ({msg[:120]!r})")
+    await ctx.close()
+
+
 async def cenario_sem_mic(nav):
     print("\n[v1.2] Navegador sem reconhecimento de voz")
     ctx = await nav.new_context(viewport={"width": 1280, "height": 900})
@@ -458,7 +540,7 @@ async def cenario_conversa_longa(nav):
 async def main():
     async with async_playwright() as p:
         nav = await p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_sem_mic):
+        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_v13, cenario_sem_mic):
             try:
                 await c(nav)
             except Exception as e:  # noqa: BLE001

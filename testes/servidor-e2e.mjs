@@ -35,6 +35,8 @@ function claudeSimulado(corpo) {
   if (t.includes("lista de imóveis")) return falar("Encontrei 2 opções. Veja:\n#QI1626 — Santa Rosa, 2 quartos — R$ 400.000\n#QI1623 — Icaraí, 3 quartos — R$ 599.000\nSe nenhuma servir, o Antônio procura no mercado.");
   if (t.includes("quanto custa")) return falar("O condomínio é R$ 1.128 e o IPTU é R$ 113. Se preferir, o telefone é (21) 98103-6246.");
   if (t.includes("não sei quanto")) return usar("abrir_ficha_busca", { valor_indefinido: true });
+  if (t.includes("obrigado, vou encerrar")) return usar("abrir_ficha_busca", { bairros: ["Icaraí"] });
+  if (t.includes("só oi")) return usar("encaminhar_whatsapp", { resumo: "Quero falar com o corretor Antônio Quinto." });
   return falar("Posso ajudar a encontrar um imóvel. Qual bairro?");
 }
 
@@ -87,6 +89,10 @@ http
     for await (const p of req) partes.push(p);
     const corpo = Buffer.concat(partes);
 
+    if (u.pathname === "/__ultimo") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify(globalThis.__ultimoPedido || null));
+    }
     if (u.pathname === "/__registros") {
       res.writeHead(200, { "Content-Type": "application/json" });
       return res.end(JSON.stringify(registros));
@@ -116,6 +122,11 @@ http
     if (u.pathname === "/" ) return enviarLatin1(res, pagina("inicio.html", { balao: u.searchParams.get("balao") }));
     if (["/chat", "/saude"].includes(u.pathname)) {
       // cada navegador de teste usa um "IP" próprio (o limite por IP vale por cenário)
+      if (req.method === "POST") {
+        try {
+          globalThis.__ultimoPedido = JSON.parse(corpo);
+        } catch {}
+      }
       const headers = { ...req.headers, "cf-connecting-ip": req.headers["x-teste-ip"] || req.headers["user-agent"] || "local" };
       const r = await worker.fetch(new Request(ORIGEM + req.url, { method: req.method, headers, body: ["GET", "HEAD", "OPTIONS"].includes(req.method) ? undefined : corpo }), ENV);
       res.writeHead(r.status, Object.fromEntries(r.headers));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import worker, { limparHistorico, cartoesCitados, dentroDoLimite, separarLista } from "../worker/src/index.js";
+import worker, { limparHistorico, cartoesCitados, dentroDoLimite, separarLista, limparResumoZap } from "../worker/src/index.js";
 import { buscar, normalizar } from "../worker/src/catalogo.js";
 import { prefillBusca, prefillVenda, mensagemImovel, valorEmReais, faixaDe, completarFicha } from "../worker/src/fichas.js";
 
@@ -449,4 +449,49 @@ test("instruções: calculadora vem da configuração e o número do WhatsApp s�
   assert.match(sys, /https:\/\/x\.com\.br\/calc/);
   assert.doesNotMatch(sys, /\{\{CALCULADORA\}\}/);
   assert.equal((sys.match(/98103-6246/g) || []).length, 1);
+});
+
+// ---------------- versão 1.3 ----------------
+
+test("cartões e resumos sem '| Quinto' no título", () => {
+  const c = cartoesCitados("#QI1626", CATALOGO.imoveis.map((i) => ({ ...i, titulo: "Apartamento 1 Quarto, 65m² em Icaraí, Niterói | Quinto" })), null);
+  assert.equal(c[0].titulo, "Apartamento 1 Quarto, 65m² em Icaraí, Niterói");
+});
+
+test("resumo do WhatsApp sem 'quero falar com o corretor'", () => {
+  assert.equal(limparResumoZap("Quero falar com o corretor Antônio Quinto."), "");
+  assert.equal(limparResumoZap("Prefiro falar pelo WhatsApp."), "");
+  assert.equal(limparResumoZap("Procuro apartamento de 2 quartos em Icaraí. Quero falar com o corretor."), "Procuro apartamento de 2 quartos em Icaraí.");
+  assert.equal(limparResumoZap("Quero falar com o corretor sobre o #QI1613."), "Quero falar com o corretor sobre o #QI1613.");
+});
+
+test("WhatsApp sem resumo útil: 'gostaria de atendimento'", async () => {
+  simularPorUrl({ "api.openai.com": [oaiUsar("c1", "encaminhar_whatsapp", { resumo: "Quero falar com o corretor Antônio Quinto." }), oaiTexto("Claro!")] });
+  const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "falar com o corretor" }], pagina: {} }), ENV_OPENAI)).json();
+  assert.equal(d.acao.texto, "Olá, Antônio! Vim pelo assistente do site e gostaria de atendimento.");
+  simularPorUrl({ "api.openai.com": [oaiUsar("c1", "encaminhar_whatsapp", { resumo: "Procuro casa em Itaipu." }), oaiTexto("Claro!")] });
+  const e = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "casa em Itaipu" }], pagina: {} }), ENV_OPENAI)).json();
+  assert.equal(e.acao.texto, "Olá, Antônio! Vim pelo assistente do site.\nProcuro casa em Itaipu.");
+});
+
+test("ficha aberta: o contexto avisa o modelo para não abrir de novo", async () => {
+  const chamadas = simularPorUrl({ "api.openai.com": [oaiTexto("De nada!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "obrigado" }], pagina: {}, fichas: ["ficha_busca", "inventada"] }), ENV_OPENAI);
+  const sys = chamadas[0].corpo.messages[0].content;
+  assert.match(sys, /Ficha já aberta na conversa e ainda não enviada: busca personalizada\./);
+  assert.doesNotMatch(sys, /inventada/);
+});
+
+test("valor indefinido: o aviso ao modelo sugere o link da calculadora", async () => {
+  const chamadas = simularPorUrl({ "api.openai.com": [oaiUsar("c1", "abrir_ficha_busca", { valor_indefinido: true }), oaiTexto("Ok!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "não sei quanto investir" }], pagina: {} }), ENV_OPENAI);
+  const resultado = chamadas[1].corpo.messages.find((m) => m.role === "tool").content;
+  assert.match(resultado, /Simule seu financiamento/);
+});
+
+test("WhatsApp na página de um imóvel: código e link do imóvel vão sempre na mensagem", async () => {
+  simularPorUrl({ "api.openai.com": [oaiUsar("c1", "encaminhar_whatsapp", { resumo: "Quero falar com o corretor." }), oaiTexto("Claro!")] });
+  const url = "https://www.quintoimoveis.com.br/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa";
+  const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "whatsapp" }], pagina: { url } }), ENV_OPENAI)).json();
+  assert.equal(d.acao.texto, `Olá, Antônio! Vim pelo assistente do site.\nTenho interesse neste imóvel:\n#QI1626 - ${CATALOGO.imoveis.find((i) => i.codigo === "QI1626").url}`);
 });

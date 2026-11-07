@@ -89,7 +89,7 @@ export function resumo(i) {
     suites: i.suites,
     vagas: i.vagas,
     area: i.area,
-    titulo: i.titulo,
+    titulo: limparTitulo(i.titulo),
   };
 }
 
@@ -101,7 +101,7 @@ export function detalhes(i) {
 export function cartao(i) {
   return {
     codigo: i.codigo,
-    titulo: i.titulo || `${i.tipo} em ${i.bairro}`,
+    titulo: limparTitulo(i.titulo) || `${i.tipo} em ${i.bairro}`,
     bairro: i.bairro,
     preco: i.preco,
     quartos: i.quartos,
@@ -129,4 +129,9 @@ export function resumoDoCatalogo(imoveis) {
     .join(", ");
   const faixa = max ? `de R$ ${Math.round(min).toLocaleString("pt-BR")} a R$ ${Math.round(max).toLocaleString("pt-BR")}` : "não informada";
   return `Catálogo atual: ${imoveis.length} imóveis à venda. Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
+}
+
+// Títulos do ImobiBrasil às vezes terminam com " | Quinto" (nome do site): o cartão não precisa disso
+export function limparTitulo(t) {
+  return String(t || "").replace(/\s*[|–—-]\s*Quinto(\s+Im[óo]veis)?\s*$/i, "").trim();
 }

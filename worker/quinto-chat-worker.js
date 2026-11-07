@@ -1,7 +1,7 @@
 // Quinto Chat - backend do agente (arquivo único para colar no painel da Cloudflare)
 // Gerado a partir de worker/src. Para editar regras e textos, mude worker/src e gere de novo.
 // Chaves de API: cadastre como Secret no painel (OPENAI_API_KEY, ANTHROPIC_API_KEY...).
-// Versão 1.2 (06/11/2026): cartões sem lista, faixas de valor, calculadora configurável, fichas completas, WhatsApp, reasoning_effort none.
+// Versão 1.3 (06/11/2026): uma ficha de cada vez, WhatsApp pela ficha, títulos sem '| Quinto', resumo do WhatsApp limpo, código e link do imóvel no WhatsApp.
 
 // worker/src/prompt.js
 var INSTRUCOES = `Você é o assistente virtual da Quinto Imóveis, imobiliária independente do corretor Antônio Quinto (CRECI-RJ 040171), em Niterói, RJ. Você atende visitantes no site quintoimoveis.com.br.
@@ -61,8 +61,13 @@ Use sempre que o visitante disser que quer vender, anunciar ou avaliar o imóvel
 - Se ele ainda não disse, pergunte se aceitaria permuta (receber outro imóvel como parte do pagamento) antes de abrir a ficha, ou deixe para ele responder na ficha.
 - Preencha com TUDO o que ele já contou: o tipo ("meu apartamento" = Apartamento), bairro, quartos, vagas, área, situação, prazo. Não dê opinião sobre o valor do imóvel.
 
+# Fichas: uma de cada vez
+- Cada ficha aparece uma vez. Se o contexto avisar que uma ficha já está aberta, não abra a mesma de novo, a menos que o visitante peça ou traga dados novos para ela (aí abra de novo, com tudo preenchido: a nova substitui a anterior).
+- Se o visitante agradecer ou se despedir, responda em uma frase cordial, sem abrir ficha. Se houver ficha aberta e não enviada, lembre que ela continua logo acima.
+- Não descreva o que você marcou ou preencheu na ficha; diga só o que o visitante precisa fazer.
+
 # WhatsApp (encaminhar_whatsapp)
-Use quando o visitante preferir o WhatsApp ou quiser falar com uma pessoa. No resumo, escreva o que ele procura ou quer e os códigos dos imóveis de interesse. O chat mostra, logo abaixo da sua resposta, os campos de nome e telefone e o botão "Enviar mensagem pelo WhatsApp"; o WhatsApp abre com a mensagem pronta.
+Use quando o visitante preferir o WhatsApp ou quiser falar com uma pessoa. No resumo, escreva o que ele procura ou quer (tipo, bairro, quartos, valor) e os códigos dos imóveis de interesse. Se ele ainda não contou nada disso, deixe o resumo vazio. Nunca escreva "quero falar com o corretor" no resumo: a mensagem já vai para o Antônio. O chat mostra, logo abaixo da sua resposta, os campos de nome e telefone e o botão "Enviar mensagem pelo WhatsApp"; o WhatsApp abre com a mensagem pronta.
 
 # Páginas úteis do site
 - Simular financiamento: https://www.quintoimoveis.com.br/financiamento
@@ -149,7 +154,7 @@ function resumo(i) {
     suites: i.suites,
     vagas: i.vagas,
     area: i.area,
-    titulo: i.titulo
+    titulo: limparTitulo(i.titulo)
   };
 }
 function detalhes(i) {
@@ -159,7 +164,7 @@ function detalhes(i) {
 function cartao(i) {
   return {
     codigo: i.codigo,
-    titulo: i.titulo || `${i.tipo} em ${i.bairro}`,
+    titulo: limparTitulo(i.titulo) || `${i.tipo} em ${i.bairro}`,
     bairro: i.bairro,
     preco: i.preco,
     quartos: i.quartos,
@@ -183,6 +188,9 @@ function resumoDoCatalogo(imoveis) {
   const bairros = Object.entries(porBairro).sort((a, b) => b[1] - a[1]).map(([b, n]) => `${b} (${n})`).join(", ");
   const faixa = max ? `de R$ ${Math.round(min).toLocaleString("pt-BR")} a R$ ${Math.round(max).toLocaleString("pt-BR")}` : "não informada";
   return `Catálogo atual: ${imoveis.length} imóveis à venda. Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
+}
+function limparTitulo(t) {
+  return String(t || "").replace(/\s*[|–—-]\s*Quinto(\s+Im[óo]veis)?\s*$/i, "").trim();
 }
 
 // worker/src/fichas.js
@@ -652,11 +660,10 @@ var FERRAMENTAS = [
       properties: {
         resumo: {
           type: "string",
-          description: "Uma ou duas frases com o que o visitante procura ou quer, em primeira pessoa"
+          description: "Uma ou duas frases, em primeira pessoa, com o que o visitante procura ou quer (ex.: 'Procuro apartamento de 2 quartos em Icaraí até R$ 600.000.'). Vazio se ele ainda não contou. Nunca 'quero falar com o corretor'."
         },
         codigos: { type: "array", items: { type: "string" }, description: "Códigos dos imóveis de interesse" }
-      },
-      required: ["resumo"]
+      }
     }
   }
 ];
@@ -736,7 +743,8 @@ var src_default = {
       return json({ texto: TEXTO_LIMITE, imoveis: [], acao: ACAO_PADRAO_WHATSAPP(env), limite: true }, 200, cors);
     }
     try {
-      const resultado = await atender(env, mensagens, corpo?.pagina || {}, { rodada, contato: corpo?.contato === true });
+      const fichas = [].concat(corpo?.fichas || []).filter((f) => FICHAS_VALIDAS.includes(f));
+      const resultado = await atender(env, mensagens, corpo?.pagina || {}, { rodada, contato: corpo?.contato === true, fichas });
       return json(resultado, 200, cors);
     } catch (e) {
       console.log("erro_atendimento", String(e?.message || e).slice(0, 300));
@@ -769,7 +777,7 @@ ${resumoDoCatalogo(imoveis)}`,
   let ultimoErro = new Error("nenhum provedor configurado");
   for (const cfg of provedores) {
     try {
-      const r = await conversar(cfg, sistema, mensagens, imoveis, env);
+      const r = await conversar(cfg, sistema, mensagens, imoveis, env, imovelDaPagina);
       console.log(
         JSON.stringify({ evento: "chat", provedor: cfg.nome, modelo: cfg.modelo, ferramentas: r.usadas, acao: r.acao ? r.acao.tipo : null, tokens: r.uso })
       );
@@ -789,11 +797,12 @@ ${resumoDoCatalogo(imoveis)}`,
   }
   throw ultimoErro;
 }
-async function conversar(cfg, sistema, mensagens, imoveis, env) {
+async function conversar(cfg, sistema, mensagens, imoveis, env, imovelDaPagina = null) {
   const conversa = mensagens.map((m) => ({ role: m.role, texto: m.content }));
   const contexto = {
     textoVisitante: mensagens.filter((m) => m.role === "user").map((m) => m.content).join("\n"),
-    bairros: [...new Set(imoveis.map((i) => i.bairro).filter(Boolean))]
+    bairros: [...new Set(imoveis.map((i) => i.bairro).filter(Boolean))],
+    imovelDaPagina
   };
   const usadas = [];
   const uso = { entrada: 0, cache: 0, saida: 0 };
@@ -827,7 +836,7 @@ async function conversar(cfg, sistema, mensagens, imoveis, env) {
   if (!texto2) texto2 = "Pode me contar um pouco mais do que você procura? Bairro, quartos e faixa de preço já ajudam.";
   return { texto: texto2, acao, usadas, uso };
 }
-var AVISO_FICHA = 'A ficha aparece logo abaixo da sua resposta, preenchida com o que o visitante contou. Diga, de forma natural e em uma ou duas frases, que ele só precisa conferir, completar o que faltar e tocar em Enviar; o site abre o formulário do Antônio já preenchido, e ele só digita o código de 4 números. Se quiser, lembre que ele pode tocar em "Prefiro falar no WhatsApp". Não escreva o número do WhatsApp e não use a expressão "está na tela".';
+var AVISO_FICHA = 'A ficha aparece logo abaixo da sua resposta, preenchida com o que o visitante contou. Diga, de forma natural e em uma ou duas frases, que ele só precisa conferir, completar o que faltar e tocar em Enviar (não descreva o que foi marcado na ficha); o site abre o formulário do Antônio já preenchido, e ele só digita o código de 4 números. Se quiser, lembre que ele pode tocar em "Prefiro falar no WhatsApp". Não escreva o número do WhatsApp e não use a expressão "está na tela".';
 function executarFerramenta(nome, entrada, imoveis, env, contexto = {}) {
   if (nome === "buscar_imoveis") {
     const r = buscar(imoveis, entrada);
@@ -844,7 +853,10 @@ function executarFerramenta(nome, entrada, imoveis, env, contexto = {}) {
     const e = completarFicha("busca", entrada, contexto.textoVisitante, contexto.bairros);
     return {
       acao: { tipo: "ficha_busca", dados: prefillBusca(e), calculadora: env.CALCULADORA_URL || PADROES.CALCULADORA_URL },
-      paraModelo: { ok: true, aviso: AVISO_FICHA }
+      paraModelo: {
+        ok: true,
+        aviso: AVISO_FICHA + (e.valor_indefinido === true || prefillBusca(e).faixa === "nao_sei" ? ' O visitante ainda não sabe quanto pode investir: diga, de forma leve, que o link "Simule seu financiamento" na ficha ajuda a ter uma ideia do valor.' : "")
+      }
     };
   }
   if (nome === "abrir_ficha_venda") {
@@ -870,13 +882,16 @@ function executarFerramenta(nome, entrada, imoveis, env, contexto = {}) {
     };
   }
   if (nome === "encaminhar_whatsapp") {
-    const linhas = ["Olá, Antônio! Vim pelo assistente do site."];
-    linhas.push(String(entrada.resumo || "").trim().slice(0, 400));
-    const codigos = [].concat(entrada.codigos || []).slice(0, 5);
-    for (const c of codigos) {
-      const i = acharPorCodigo(imoveis, c);
-      if (i) linhas.push(`#${i.codigo} - ${i.url}`);
-    }
+    const resumo2 = limparResumoZap(entrada.resumo);
+    let achados = [].concat(entrada.codigos || []).slice(0, 5).map((c) => acharPorCodigo(imoveis, c)).filter(Boolean);
+    const daPagina = contexto.imovelDaPagina;
+    if (daPagina && !achados.some((i) => i.codigo === daPagina.codigo)) achados = [daPagina, ...achados].slice(0, 5);
+    const linhas = [
+      resumo2 || achados.length ? "Olá, Antônio! Vim pelo assistente do site." : "Olá, Antônio! Vim pelo assistente do site e gostaria de atendimento."
+    ];
+    if (resumo2) linhas.push(resumo2);
+    else if (achados.length) linhas.push(achados.length > 1 ? "Tenho interesse nestes imóveis:" : "Tenho interesse neste imóvel:");
+    for (const i of achados) linhas.push(`#${i.codigo} - ${i.url}`);
     const textoZap = linhas.filter(Boolean).join("\n");
     return {
       acao: { tipo: "whatsapp", texto: textoZap, link: linkWhatsApp(env, textoZap) },
@@ -894,6 +909,12 @@ function contextoDaPagina(pagina, imovel, info = {}) {
   if (EMPURRAO_EM.includes(info.rodada) && !info.contato) {
     partes.push(
       `AVISO: esta é a mensagem número ${info.rodada} do visitante e ele ainda não deixou contato. Responda o que ele perguntou e, nesta mesma resposta, ofereça que o corretor Antônio Quinto continue o atendimento, usando a ferramenta adequada (veja "Conversa longa").`
+    );
+  }
+  if (info.fichas && info.fichas.length) {
+    const nomes = { ficha_busca: "busca personalizada", ficha_venda: "venda do imóvel", contato_imovel: "contato sobre o imóvel" };
+    partes.push(
+      `Ficha já aberta na conversa e ainda não enviada: ${[...new Set(info.fichas)].map((f) => nomes[f]).join(", ")}. Não abra a mesma de novo, a menos que o visitante peça ou traga dados novos (veja "Fichas: uma de cada vez").`
     );
   }
   if (imovel) {
@@ -933,6 +954,17 @@ function separarLista(texto2, cartoes) {
   const meio = linhas.slice(primeiro, ultimo + 1).filter((l, i) => !itens[primeiro + i] && l.trim());
   const depois = limpar([...meio, ...linhas.slice(ultimo + 1)]);
   return { antes: antes || "Veja estas opções:", depois };
+}
+var FICHAS_VALIDAS = ["ficha_busca", "ficha_venda", "contato_imovel"];
+var FALAR_COM = /\b(falar|conversar)\s+(com\s+(o\s+)?(corretor|ant[ôo]nio|voc[êe]|algu[ée]m|uma pessoa)(\s+ant[ôo]nio)?(\s+quinto)?|pelo\s+whats\s*app|no\s+whats\s*app)/gi;
+var ENCHIMENTO = /\b(quero|queria|gostaria|prefiro|desejo|preciso|eu|de|e|o|a|com|por|favor|agora|direto|diretamente|mais|sobre|isso)\b/gi;
+function limparResumoZap(t) {
+  return String(t || "").split(/(?<=[.!?])\s+|\n+/).map((f) => f.trim()).filter((f) => {
+    if (!f) return false;
+    if (!f.match(FALAR_COM)) return true;
+    const resto = f.replace(FALAR_COM, " ").replace(ENCHIMENTO, " ").replace(/[^\p{L}\d]+/gu, "");
+    return resto.length >= 4;
+  }).join(" ").slice(0, 400);
 }
 function limparHistorico(lista) {
   if (!Array.isArray(lista) || lista.length === 0) return null;
@@ -985,5 +1017,6 @@ export {
   dentroDoLimite,
   executarFerramenta,
   limparHistorico,
+  limparResumoZap,
   separarLista
 };
