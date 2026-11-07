@@ -344,6 +344,31 @@ async def cenario_v13(nav):
     await ctx.close()
 
 
+async def cenario_pagina_larga(nav):
+    print("\n[v1.3] Site mais largo que a tela do celular (carrossel passando da borda)")
+    ctx = await nav.new_context(viewport={"width": 375, "height": 812}, user_agent=CELULAR, is_mobile=True, has_touch=True,
+                                extra_http_headers={"X-Teste-IP": "10.9.9.15"})
+    await ctx.add_init_script(INIT + """
+document.addEventListener('DOMContentLoaded', function () {
+  var m = document.createElement('meta'); m.name = 'viewport'; m.content = 'width=device-width, initial-scale=1.0'; document.head.appendChild(m);
+  var d = document.createElement('div'); d.style.cssText = 'width:420px;height:20px;background:#ccc'; document.body.prepend(d);
+});""")
+    pg = await ctx.new_page()
+    await pg.goto(BASE + "/")
+    await pg.wait_for_timeout(600)
+    m = await pg.evaluate(f"""(() => {{ const vv = visualViewport; const r = {SR}.querySelector('.lancador').getBoundingClientRect();
+      return {{ iw: innerWidth, vw: vv.width, ol: vv.offsetLeft, ot: vv.offsetTop, vh: vv.height, l: r.left, r: r.right, b: r.bottom }}; }})()""")
+    confere(m["iw"] > m["vw"], f"página mais larga que a tela ({m['iw']} > {m['vw']})")
+    dentro = m["l"] >= m["ol"] and m["r"] <= m["ol"] + m["vw"] + 0.5 and m["b"] <= m["ot"] + m["vh"] + 0.5
+    confere(dentro, f"botão do chat inteiro dentro da área visível ({m})")
+    await pg.locator("#quinto-chat .lancador").click()
+    await pg.wait_for_timeout(300)
+    p = await pg.evaluate(f"(() => {{ const vv = visualViewport; const r = {SR}.querySelector('.painel').getBoundingClientRect(); return {{ w: r.width, vw: vv.width, l: r.left, ol: vv.offsetLeft }}; }})()")
+    confere(abs(p["w"] - p["vw"]) < 1 and abs(p["l"] - p["ol"]) < 1, f"painel ocupa exatamente a tela visível ({p})")
+    await shot(pg, "v13b_pagina_larga_celular")
+    await ctx.close()
+
+
 async def cenario_sem_mic(nav):
     print("\n[v1.2] Navegador sem reconhecimento de voz")
     ctx = await nav.new_context(viewport={"width": 1280, "height": 900})
@@ -540,7 +565,7 @@ async def cenario_conversa_longa(nav):
 async def main():
     async with async_playwright() as p:
         nav = await p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_v13, cenario_sem_mic):
+        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_v13, cenario_pagina_larga, cenario_sem_mic):
             try:
                 await c(nav)
             except Exception as e:  # noqa: BLE001

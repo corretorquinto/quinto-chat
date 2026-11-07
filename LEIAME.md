@@ -256,6 +256,7 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Histórico de versões
 
+- **1.3.1 (06/11/2026):** o chat se posiciona pela área visível da tela do celular. Na página inicial do site, um carrossel deixa a página mais larga que a tela (428 px numa tela de 375 px), e o botão do chat ficava meio escondido à direita.
 - **1.3 (06/11/2026):** uma ficha de cada vez (a nova substitui a anterior do mesmo tipo, e o agente sabe que ela já está aberta); na despedida, só agradece; sugestões não aparecem por cima de uma ficha; o "Prefiro falar no WhatsApp" da ficha usa o nome e o telefone da própria ficha; títulos dos cartões sem "| Quinto"; a mensagem do WhatsApp não repete "quero falar com o corretor"; quem não sabe o valor recebe a dica do link da calculadora; na página de um imóvel, toda mensagem de WhatsApp leva o código e o link dele.
 - **1.2 (06/11/2026):** lista de imóveis só em cartões; valores e telefones sem quebra de linha; o agente indica o botão do WhatsApp em vez de escrever o número; botão de microfone; valor obrigatório por faixas na busca, com link para a calculadora (endereço configurável em `CALCULADORA_URL`); as fichas completam tipo, bairro e quartos que o visitante disse; WhatsApp com nome e telefone direto e botão "Enviar mensagem pelo WhatsApp"; no computador abre o WhatsApp Web; textos mais naturais; a página de teste avisa quando está usando o agente de verdade.
 - **1.1 (06/11/2026):** envia `reasoning_effort: "none"` para a OpenAI (o GPT-6 recusava as ferramentas sem isso).

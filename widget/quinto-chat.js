@@ -79,6 +79,7 @@
 
   raiz.innerHTML =
     "<style>" + css() + "</style>" +
+    '<div class="tela">' +
     '<button class="lancador" type="button" aria-label="Abrir assistente virtual" aria-expanded="false">' +
     icone("chat") + "</button>" +
     '<div class="dica" role="status" hidden><button class="fechar-dica" type="button" aria-label="Fechar">×</button>' +
@@ -95,7 +96,7 @@
     '<button type="button" class="mic" aria-label="Falar em vez de digitar" title="Falar em vez de digitar" hidden>' + icone("mic") + "</button>" +
     '<button type="submit" class="enviar" aria-label="Enviar">' + icone("enviar") + "</button></form>" +
     '<p class="aviso">Assistente com inteligência artificial; pode errar. Confirme os dados com o corretor.</p>' +
-    "</section>";
+    "</section></div>";
 
   var $ = function (s) {
     return raiz.querySelector(s);
@@ -109,7 +110,42 @@
     botaoEnviar = $(".entrada .enviar"),
     botaoMic = $(".entrada .mic"),
     dica = $(".dica"),
-    guia = $(".guia");
+    guia = $(".guia"),
+    tela = $(".tela");
+
+  // ---------- a "tela" do chat acompanha a área visível ----------
+  // Em alguns celulares a página do site fica mais larga que a tela (um carrossel ou banner que
+  // passa da borda). Aí tudo o que é "fixo à direita" fica meio escondido. O chat se posiciona pela
+  // área realmente visível (visualViewport), então o botão e o painel nunca saem da tela.
+  var agendado = false;
+  function ajustarTela() {
+    agendado = false;
+    var vv = window.visualViewport;
+    var x = 0, y = 0, w = document.documentElement.clientWidth || window.innerWidth, h = window.innerHeight;
+    if (vv && vv.width > 0) {
+      x = vv.offsetLeft;
+      y = vv.offsetTop;
+      w = vv.width;
+      h = vv.height;
+    }
+    tela.style.left = x + "px";
+    tela.style.top = y + "px";
+    tela.style.width = w + "px";
+    tela.style.height = h + "px";
+    tela.classList.toggle("estreita", w <= 480);
+  }
+  function agendarAjuste() {
+    if (agendado) return;
+    agendado = true;
+    (window.requestAnimationFrame || setTimeout)(ajustarTela);
+  }
+  ajustarTela();
+  window.addEventListener("resize", agendarAjuste);
+  window.addEventListener("orientationchange", agendarAjuste);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", agendarAjuste);
+    window.visualViewport.addEventListener("scroll", agendarAjuste);
+  }
 
   function iniciar() {
     document.body.appendChild(host);
@@ -1360,6 +1396,8 @@
     var c = cfg.cor;
     return (
       ":host{all:initial}" +
+      // a "tela" ocupa exatamente a área visível; o transform faz os filhos "fixos" se posicionarem por ela
+      ".tela{position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147483000;pointer-events:none;transform:translateZ(0)}.tela>*{pointer-events:auto}" +
       "*{box-sizing:border-box;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif}" +
       // botão em 3D: brilho no alto, borda inferior mais escura (efeito de tecla) e sombra na cor da marca
       ".lancador{position:fixed;" + lado + ":20px;bottom:26px;z-index:2147483000;width:64px;height:64px;padding:0;border-radius:50%;border:0;color:#fff;display:grid;place-items:center;cursor:pointer;" +
@@ -1381,9 +1419,9 @@
       ".dica-corpo{display:flex;flex-direction:column;gap:4px}.dica-acao{font-weight:700;font-size:13px;color:" + c + "}" +
       "@keyframes surgir{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}" +
       ".fechar-dica,.fechar-guia{position:absolute;top:4px;right:6px;border:0;background:none;font-size:18px;color:#8a96a3;cursor:pointer}" +
-      ".guia{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:2147483002;width:min(420px,calc(100vw - 32px));background:#fff8e1;border:2px solid #f2b84b;color:#1b2733;border-radius:14px;padding:12px 32px 12px 14px;box-shadow:0 10px 30px rgba(10,25,40,.25);display:flex;flex-direction:column;gap:3px;font-size:14px;line-height:1.4}" +
+      ".guia{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:2147483002;width:min(420px,calc(100% - 32px));background:#fff8e1;border:2px solid #f2b84b;color:#1b2733;border-radius:14px;padding:12px 32px 12px 14px;box-shadow:0 10px 30px rgba(10,25,40,.25);display:flex;flex-direction:column;gap:3px;font-size:14px;line-height:1.4}" +
       ".guia strong{font-size:15px}" +
-      ".painel{position:fixed;" + lado + ":20px;bottom:20px;z-index:2147483001;width:380px;height:min(640px,calc(100vh - 40px));background:#f6f7f9;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(10,25,40,.3);color:#1b2733;font-size:15px}" +
+      ".painel{position:fixed;" + lado + ":20px;bottom:20px;z-index:2147483001;width:380px;height:min(640px,calc(100% - 40px));background:#f6f7f9;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 18px 50px rgba(10,25,40,.3);color:#1b2733;font-size:15px}" +
       "[hidden]{display:none!important}" +
       "header{display:flex;align-items:center;gap:10px;padding:14px 12px 14px 16px;background:" + c + ";color:#fff}" +
       ".avatar{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;font-weight:700;font-size:18px}" +
@@ -1442,10 +1480,13 @@
       ".marcar label{display:flex;align-items:center;gap:7px;font-size:13.5px;color:#1b2733;cursor:pointer}.marcar input{margin:0;width:16px;height:16px;flex:none;accent-color:" + c + "}" +
       ".erro{color:#b42318;font-size:12px}.erro:empty{display:none}.erro-geral{margin:0;color:#b42318;font-size:12.5px}.erro-geral:empty{display:none}" +
       ".enviar-ficha{border:0;border-radius:12px;background:" + c + ";color:#fff;font-weight:600;font-size:15px;padding:12px;cursor:pointer}" +
-      "@media (max-width:480px){.painel{inset:0;width:100%;height:100%;border-radius:0;padding-bottom:env(safe-area-inset-bottom)}.entrada textarea,.ficha input,.ficha select,.ficha textarea{font-size:16px!important}.lancador{bottom:22px;" + lado + ":16px}" +
-        ".guia{bottom:100px}" +
-        ".dica{" + lado + ":16px;bottom:104px;max-width:min(300px,calc(100vw - 32px));border-" + lado + ":0;border-bottom:4px solid " + c + "}" +
-        ".dica::after{bottom:-14px;" + lado + ":26px;border-color:transparent;border-top-color:" + c + "}}" +
+      // celular: a classe "estreita" vem da largura visível de verdade (e não da largura da página)
+      ".estreita .painel{inset:0;width:100%;height:100%;border-radius:0;padding-bottom:env(safe-area-inset-bottom)}" +
+      ".estreita .entrada textarea,.estreita .ficha input,.estreita .ficha select,.estreita .ficha textarea{font-size:16px!important}" +
+      ".estreita .lancador{bottom:22px;" + lado + ":16px}" +
+      ".estreita .guia{bottom:100px}" +
+      ".estreita .dica{" + lado + ":16px;bottom:104px;max-width:min(300px,calc(100% - 32px));border-" + lado + ":0;border-bottom:4px solid " + c + "}" +
+      ".estreita .dica::after{bottom:-14px;" + lado + ":26px;border-color:transparent;border-top-color:" + c + "}" +
       "@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}"
     );
   }
