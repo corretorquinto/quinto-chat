@@ -33,6 +33,7 @@
     balaoSegundos: Number(script && script.getAttribute("data-balao-segundos")) || 20,
     calculadora: (script && script.getAttribute("data-calculadora")) || "https://www.quintoimoveis.com.br/calculadora-financiamento",
     voltaMinutos: Number(script && script.getAttribute("data-balao-volta-minutos")) || 3,
+    cookiesEspera: Number(script && script.getAttribute("data-cookies-espera-segundos")) || 12,
     catalogo: (script && script.getAttribute("data-catalogo")) || "https://corretorquinto.github.io/quinto-chat/catalogo/catalogo.json",
   };
   if (!cfg.api) {
@@ -558,16 +559,6 @@
   var paginaBalao = ""; // o balão "desta página" (é o que volta depois do X)
   var abriuNestaPagina = false;
 
-  function infoDoImovel() {
-    var t = (document.title || "").replace(/\s*\|.*$/, "");
-    var m = t.match(/^(apartamento|casa|cobertura|sala comercial|sala|loja|kitnet|studio|flat|terreno|lote|galpão|chácara|sítio|fazenda|pousada|prédio)/i);
-    var b = t.match(/\sem\s([^,|]+?)\s*$/);
-    var tipo = m ? m[1].toLowerCase() : "";
-    var fem = /^(casa|cobertura|sala|loja|kitnet|chácara|fazenda|pousada)/.test(tipo);
-    var bairro = b && b[1].length <= 30 ? b[1] : "";
-    return { tipo: tipo, fem: fem, bairro: bairro };
-  }
-
   function tipoDaPagina() {
     var p = location.pathname;
     if (/\/imovel\/\d+\//.test(p)) return "imovel";
@@ -599,11 +590,9 @@
   function montarBalao(id) {
     var ola = saudacao();
     if (id === "imovel") {
-      var i = infoDoImovel();
-      var este = i.tipo ? (i.fem ? "desta " : "deste ") + i.tipo + (i.bairro ? " em " + i.bairro : "") : "deste imóvel";
       return {
         id: id,
-        texto: "Gostou " + este + "? Tiro suas dúvidas e agendo sua visita.",
+        texto: "Gostou deste imóvel? Tiro suas dúvidas e agendo sua visita.",
         chat: ola + "Por onde prefere começar?",
         sugestoes: ["Quero conhecer o imóvel", "Tenho uma pergunta", "Ver opções semelhantes"],
       };
@@ -674,19 +663,52 @@
     );
   }
 
-  function cookiesNaTela() {
+  // o aviso de cookies só conta se estiver de fato visível na tela (não escondido fora dela ou transparente)
+  function avisoCookies() {
     var a = document.getElementById("aviso_privacidade");
-    if (!a) return false;
+    if (!a) return null;
     var st = getComputedStyle(a);
-    return st.display !== "none" && st.visibility !== "hidden" && a.offsetHeight > 0;
+    if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) < 0.1) return null;
+    var r = a.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return null;
+    var vh = window.innerHeight, vw = window.innerWidth;
+    return r.bottom > 0 && r.top < vh && r.right > 0 && r.left < vw ? r : null;
+  }
+  function cookiesNaTela() {
+    return !!avisoCookies();
   }
 
-  // espera = true: se o aviso de cookies estiver na tela, aguarda ele sumir
-  function mostrarBalao(id, espera) {
+  // com o aviso de cookies ainda na tela, o balão sobe para ficar acima dele (não fica coberto)
+  var vigiaAviso = null;
+  function posicionarBalao() {
+    var r = avisoCookies();
+    if (r && r.top > window.innerHeight * 0.4) {
+      dica.style.bottom = Math.round(window.innerHeight - r.top + 12) + "px";
+      if (!vigiaAviso) {
+        vigiaAviso = setInterval(function () {
+          if (dica.hidden || !cookiesNaTela()) {
+            dica.style.bottom = "";
+            clearInterval(vigiaAviso);
+            vigiaAviso = null;
+          }
+        }, 1000);
+      }
+    } else {
+      dica.style.bottom = "";
+    }
+  }
+
+  // espera = true: se o aviso de cookies estiver na tela, aguarda ele sumir (no máximo alguns segundos;
+  // depois disso o balão aparece mesmo assim, acima do aviso)
+  function mostrarBalao(id, espera, desde) {
     if (!podeMostrarBalao()) return;
+    desde = desde || Date.now();
     if (cookiesNaTela()) {
-      if (espera) setTimeout(function () { mostrarBalao(id, true); }, 1000);
-      return;
+      if (!espera) return;
+      if (Date.now() - desde < cfg.cookiesEspera * 1000) {
+        setTimeout(function () { mostrarBalao(id, true, desde); }, 1000);
+        return;
+      }
     }
     balaoAtual = montarBalao(id);
     balaoAtual.base = id;
@@ -695,6 +717,7 @@
     salvar();
     dica.querySelector(".dica-texto").textContent = balaoAtual.texto;
     dica.hidden = false;
+    posicionarBalao();
     medir("balao_exibido", { quinto_chat_balao: balaoAtual.id });
     // fica na tela até a pessoa clicar ou fechar no X
   }
@@ -778,24 +801,22 @@
     });
     return melhor ? { bairro: melhor.bairro, qtd: melhor.qtd } : null;
   }
-  function carregarContextoArtigo(pronto) {
+  // busca o catálogo (uma vez) e chama pronto(imoveis); se demorar mais de 4 s, chama com []
+  function carregarCatalogo(pronto) {
     var feito = false;
-    function fim() {
+    function fim(lista) {
       if (feito) return;
       feito = true;
-      pronto();
+      pronto(lista || []);
     }
-    setTimeout(fim, 4000); // catálogo lento: segue com o convite geral do artigo
+    setTimeout(fim, 4000);
     try {
       fetch(cfg.catalogo)
         .then(function (r) { return r.json(); })
-        .then(function (d) {
-          contextoArtigo = analisarArtigo((d && d.imoveis) || []);
-          fim();
-        })
-        .catch(fim);
+        .then(function (d) { fim((d && d.imoveis) || []); })
+        .catch(function () { fim([]); });
     } catch (e) {
-      fim();
+      fim([]);
     }
   }
 
@@ -830,7 +851,8 @@
     if (fechadoAqui()) espera = Math.max(TEMPO_BALAO, VOLTA_MS - (Date.now() - estado.fechouEm) + 500);
 
     if (tipo === "artigo") {
-      carregarContextoArtigo(function () {
+      carregarCatalogo(function (imoveis) {
+        contextoArtigo = analisarArtigo(imoveis);
         setTimeout(disparar, Math.max(0, espera - (Date.now() - carregouEm)));
       });
     } else {

@@ -171,7 +171,7 @@ O chat acompanha o visitante: em **toda página nova** aparece um balão ao lado
 
 | Página | Mensagem |
 |---|---|
-| Imóvel: ao chegar na descrição **ou** após o tempo, o que vier primeiro | "Gostou deste apartamento em Icaraí? Tiro suas dúvidas e agendo sua visita." |
+| Imóvel: ao chegar na descrição **ou** após o tempo, o que vier primeiro | "Gostou deste imóvel? Tiro suas dúvidas e agendo sua visita." |
 | A partir do 3º imóvel visto na visita (uma vez) | "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você." |
 | Lista de imóveis (/cat/, busca, bairro) | "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você." |
 | Notícia que fala de uma rua onde há imóvel à venda | "Temos 2 imóveis à venda na Rua Otávio Carneiro, em Icaraí. Quer ver?" |
@@ -263,6 +263,7 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Histórico de versões
 
+- **1.4.2 (07/11/2026):** o balão do imóvel passa a ser sempre "Gostou deste imóvel? Tiro suas dúvidas e agendo sua visita." (sem tipo nem bairro: o título da página não é confiável). O aviso de cookies só segura o balão se estiver realmente visível na tela, e por no máximo 12 segundos (`data-cookies-espera-segundos`); se continuar na tela, o balão aparece acima dele.
 - **1.4.1 (07/11/2026):** balão do imóvel: "Gostou deste apartamento em Icaraí? Tiro suas dúvidas e agendo sua visita."; ao clicar, "Por onde prefere começar?" com os botões "Quero conhecer o imóvel", "Tenho uma pergunta" e "Ver opções semelhantes"; corrigido: depois de abrir o chat numa página, o balão não voltava mais a essa página na mesma aba.
 - **1.4 (07/11/2026):** balões em toda página nova, com mensagem de acordo com a página (imóvel, lista, notícia com a rua ou o bairro citado, geral); o balão fica até a pessoa clicar ou fechar; fechado no X, volta na próxima página ou depois de 3 minutos; sem limite por visita; para de vez depois que a pessoa falou com o corretor.
 - **1.3.1 (06/11/2026):** o chat se posiciona pela área visível da tela do celular. Na página inicial do site, um carrossel deixa a página mais larga que a tela (428 px numa tela de 375 px), e o botão do chat ficava meio escondido à direita.
