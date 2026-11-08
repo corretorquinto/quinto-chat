@@ -495,3 +495,20 @@ test("WhatsApp na página de um imóvel: código e link do imóvel vão sempre n
   const d = await (await worker.fetch(pedido({ mensagens: [{ role: "user", content: "whatsapp" }], pagina: { url } }), ENV_OPENAI)).json();
   assert.equal(d.acao.texto, `Olá, Antônio! Vim pelo assistente do site.\nTenho interesse neste imóvel:\n#QI1626 - ${CATALOGO.imoveis.find((i) => i.codigo === "QI1626").url}`);
 });
+
+// ---------------- versão 1.5 ----------------
+
+test("região: instruções falam de Niterói e região; busca por cidade (Maricá) funciona", async () => {
+  const { buscar, resumoDoCatalogo } = await import("../worker/src/catalogo.js");
+  const lista = [
+    { codigo: "QI1", tipo: "Casa", bairro: "Itaipuaçu", cidade: "Maricá", preco: 500000, _bairro: "itaipuacu", _cidade: "marica", _texto: "casa itaipuacu" },
+    { codigo: "QI2", tipo: "Apartamento", bairro: "Icaraí", cidade: "Niterói", preco: 700000, _bairro: "icarai", _cidade: "niteroi", _texto: "apartamento icarai" },
+  ];
+  const r = buscar(lista, { bairro: ["Maricá"] });
+  assert.deepEqual(r.imoveis.map((i) => i.codigo), ["QI1"]);
+  assert.equal(r.imoveis[0].cidade, "Maricá");
+  assert.match(resumoDoCatalogo(lista), /Cidades: Maricá \(1\), Niterói \(1\)/);
+  const chamadas = simularPorUrl({ "api.openai.com": [oaiTexto("Olá!")] });
+  await worker.fetch(pedido({ mensagens: [{ role: "user", content: "oi" }], pagina: {} }), ENV_OPENAI);
+  assert.match(chamadas[0].corpo.messages[0].content, /Niterói e região \(como Maricá e São Gonçalo\)/);
+});

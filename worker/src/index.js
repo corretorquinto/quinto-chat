@@ -53,7 +53,7 @@ const FERRAMENTAS = [
         bairro: {
           type: "array",
           items: { type: "string" },
-          description: "Um ou mais bairros de Niterói, ex.: ['Icaraí'] ou ['Santa Rosa', 'Ingá']",
+          description: "Um ou mais bairros (ou cidades, como Maricá), ex.: ['Icaraí'] ou ['Santa Rosa', 'Ingá']",
         },
         tipo: { type: "string", description: "apartamento, casa, cobertura ou sala comercial" },
         quartos_min: { type: "integer" },

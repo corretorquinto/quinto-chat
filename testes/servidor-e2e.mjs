@@ -127,6 +127,9 @@ http
     if (u.pathname === "/") return enviarLatin1(res, pagina("inicio.html", opcoes));
     if (u.pathname.startsWith("/noticia/")) return enviarLatin1(res, pagina(u.pathname.includes("santa-rosa") ? "noticia-bairro.html" : "noticia.html", opcoes));
     if (u.pathname.startsWith("/cat/")) return enviarLatin1(res, pagina("lista.html", opcoes));
+    if (u.pathname.startsWith("/bairro/")) return enviarLatin1(res, pagina("noticia-bairro.html", opcoes).replace(' class="noticias__title__data"', ""));
+    if (["/imovel/", "/seu-imovel", "/financiamento", "/calculadora-financiamento", "/correspondente", "/sobre", "/noticias"].includes(u.pathname))
+      return enviarLatin1(res, pagina("inicio.html", opcoes));
     if (u.pathname === "/catalogo.json") {
       res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
       return res.end(JSON.stringify(CATALOGO));

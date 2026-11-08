@@ -1,13 +1,13 @@
 // Quinto Chat - backend do agente (arquivo único para colar no painel da Cloudflare)
 // Gerado a partir de worker/src. Para editar regras e textos, mude worker/src e gere de novo.
 // Chaves de API: cadastre como Secret no painel (OPENAI_API_KEY, ANTHROPIC_API_KEY...).
-// Versão 1.3 (06/11/2026): uma ficha de cada vez, WhatsApp pela ficha, títulos sem '| Quinto', resumo do WhatsApp limpo, código e link do imóvel no WhatsApp.
+// Versão 1.5 (07/11/2026): Niterói e região (Maricá, São Gonçalo); busca por cidade; cidades no resumo do catálogo.
 
 // worker/src/prompt.js
 var INSTRUCOES = `Você é o assistente virtual da Quinto Imóveis, imobiliária independente do corretor Antônio Quinto (CRECI-RJ 040171), em Niterói, RJ. Você atende visitantes no site quintoimoveis.com.br.
 
 # Quem é a Quinto Imóveis
-- Compra, venda e permuta de imóveis PRONTOS em Niterói, com foco em Icaraí, Santa Rosa, Ingá, São Francisco, Charitas, Piratininga e demais bairros da Zona Sul e da Região Oceânica.
+- Compra, venda e permuta de imóveis PRONTOS em Niterói e região (como Maricá e São Gonçalo), com foco em Icaraí, Santa Rosa, Ingá, São Francisco, Charitas, Piratininga e demais bairros da Zona Sul e da Região Oceânica de Niterói. O catálogo mostra as cidades e bairros dos imóveis à venda agora.
 - Não trabalha com lançamentos na planta nem com aluguel. Se perguntarem, diga isso com gentileza e ofereça imóveis prontos à venda.
 - Antônio é Bacharel em Direito e em Administração de Empresas, com mais de 17 anos de mercado. Atendimento direto com ele, 24 horas, 7 dias por semana, pelo WhatsApp.
 - Financiamento: Antônio tem parceria com correspondentes bancários credenciados (ele não é correspondente bancário).
@@ -47,7 +47,7 @@ Use quando o visitante quiser agendar visita, fazer proposta ou saber algo que o
 
 # Quem não encontrou o imóvel (abrir_ficha_busca)
 Ofereça quando: a busca não trouxer nada; o visitante disser que nenhuma opção serve; ele procurar algo muito específico; ou pedir para deixar o contato.
-- Explique em uma frase: o Antônio procura esse imóvel no mercado de Niterói, inclusive entre imóveis que ainda não estão anunciados, e retorna para a pessoa.
+- Explique em uma frase: o Antônio procura esse imóvel no mercado de Niterói e região, inclusive entre imóveis que ainda não estão anunciados, e retorna para a pessoa.
 - Se o visitante não pediu o WhatsApp, abra a ficha e lembre que ele também pode tocar em "Prefiro falar no WhatsApp".
 - Preencha a ficha com TUDO o que ele já contou na conversa (tipo, bairros, quartos, vagas, forma de pagamento, imóvel para permuta, prazo, outros desejos). Não invente o que ele não disse.
 - Valor: se ele disse quanto pode investir, passe em preco_max (a ficha marca a faixa de valor). Se disse que não sabe ou que quer simular o financiamento, use valor_indefinido = true. Se não falou de valor, não preencha: ele escolhe a faixa na ficha.
@@ -92,6 +92,7 @@ async function carregarCatalogo(url, agora = Date.now()) {
     const imoveis = (json2.imoveis || []).map((i) => ({
       ...i,
       _bairro: normalizar(i.bairro),
+      _cidade: normalizar(i.cidade),
       _texto: normalizar([i.titulo, i.tipo, i.bairro, i.endereco, i.descricao, ...i.caracteristicas || []].join(" "))
     }));
     memoria = { quando: agora, url, dados: { gerado_em: json2.gerado_em, imoveis } };
@@ -119,7 +120,7 @@ function buscar(imoveis, f = {}) {
   const palavras = [].concat(f.palavras_chave || []).map(normalizar).filter(Boolean);
   const limite = Math.min(Math.max(Number(f.limite) || 4, 1), 8);
   let lista = imoveis.filter((i) => {
-    if (bairros.length && !bairros.some((b) => i._bairro && (i._bairro.includes(b) || b.includes(i._bairro)))) return false;
+    if (bairros.length && !bairros.some((b) => i._bairro && (i._bairro.includes(b) || b.includes(i._bairro)) || i._cidade && i._cidade === b)) return false;
     if (f.tipo && !semelhante(i.tipo, f.tipo)) return false;
     if (f.quartos_min && !(i.quartos >= f.quartos_min)) return false;
     if (f.quartos_max && !(i.quartos <= f.quartos_max)) return false;
@@ -149,6 +150,7 @@ function resumo(i) {
     codigo: i.codigo,
     tipo: i.tipo,
     bairro: i.bairro,
+    ...i.cidade && i.cidade !== "Niterói" ? { cidade: i.cidade } : {},
     preco: i.preco,
     quartos: i.quartos,
     suites: i.suites,
@@ -158,7 +160,7 @@ function resumo(i) {
   };
 }
 function detalhes(i) {
-  const { _bairro, _texto, foto, ...resto } = i;
+  const { _bairro, _cidade, _texto, foto, ...resto } = i;
   return resto;
 }
 function cartao(i) {
@@ -176,10 +178,12 @@ function cartao(i) {
 }
 function resumoDoCatalogo(imoveis) {
   const porBairro = {};
+  const porCidade = {};
   let min = Infinity;
   let max = 0;
   for (const i of imoveis) {
     porBairro[i.bairro] = (porBairro[i.bairro] || 0) + 1;
+    if (i.cidade) porCidade[i.cidade] = (porCidade[i.cidade] || 0) + 1;
     if (i.preco) {
       min = Math.min(min, i.preco);
       max = Math.max(max, i.preco);
@@ -187,7 +191,8 @@ function resumoDoCatalogo(imoveis) {
   }
   const bairros = Object.entries(porBairro).sort((a, b) => b[1] - a[1]).map(([b, n]) => `${b} (${n})`).join(", ");
   const faixa = max ? `de R$ ${Math.round(min).toLocaleString("pt-BR")} a R$ ${Math.round(max).toLocaleString("pt-BR")}` : "não informada";
-  return `Catálogo atual: ${imoveis.length} imóveis à venda. Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
+  const cidades = Object.entries(porCidade).sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(", ");
+  return `Catálogo atual: ${imoveis.length} imóveis à venda.${cidades ? ` Cidades: ${cidades}.` : ""} Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
 }
 function limparTitulo(t) {
   return String(t || "").replace(/\s*[|–—-]\s*Quinto(\s+Im[óo]veis)?\s*$/i, "").trim();
@@ -557,7 +562,7 @@ var FERRAMENTAS = [
         bairro: {
           type: "array",
           items: { type: "string" },
-          description: "Um ou mais bairros de Niterói, ex.: ['Icaraí'] ou ['Santa Rosa', 'Ingá']"
+          description: "Um ou mais bairros (ou cidades, como Maricá), ex.: ['Icaraí'] ou ['Santa Rosa', 'Ingá']"
         },
         tipo: { type: "string", description: "apartamento, casa, cobertura ou sala comercial" },
         quartos_min: { type: "integer" },

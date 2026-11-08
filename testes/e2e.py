@@ -369,6 +369,39 @@ document.addEventListener('DOMContentLoaded', function () {
     await ctx.close()
 
 
+async def cenario_v15(nav):
+    print("\n[v1.5] Balões por tipo de página e textos sem cidade")
+    esperado = {
+        "/": "Procurando um imóvel? Posso ajudar.",
+        "/imovel/?finalidade=venda&cidade=marica": "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você.",
+        "/seu-imovel": "Pensando em vender seu imóvel? O corretor Antônio Quinto cuida de tudo para você.",
+        "/financiamento": "Dúvidas sobre financiamento? O corretor Antônio Quinto tem parceria com correspondentes bancários credenciados.",
+        "/calculadora-financiamento": "Dúvidas sobre financiamento? O corretor Antônio Quinto tem parceria com correspondentes bancários credenciados.",
+        "/correspondente": "Dúvidas sobre financiamento? O corretor Antônio Quinto tem parceria com correspondentes bancários credenciados.",
+        "/sobre": "Quer conhecer o trabalho do corretor Antônio Quinto? Posso te ajudar a encontrar seu imóvel.",
+        "/noticias": "Gostou do nosso blog? Posso te ajudar a encontrar um imóvel.",
+        "/bairro/santa-rosa-niteroi-como-e-morar-no-bairro-id-4145": "Está pesquisando sobre Santa Rosa? Temos 1 imóvel à venda no bairro. Quer ver?",
+    }
+    for caminho, texto in esperado.items():
+        pg = await nova_pagina(nav, 390, 800)
+        sep = "&" if "?" in caminho else "?"
+        await pg.goto(BASE + caminho + sep + "balao=1")
+        await pg.wait_for_timeout(1800)
+        t = await balao(pg)
+        confere(t == texto, f"{caminho.split('?')[0]}: {t}")
+        if caminho == "/seu-imovel":
+            await pg.evaluate(SR + ".querySelector('.dica').click()")
+            await pg.wait_for_timeout(300)
+            sug = await pg.evaluate("[..." + SR + ".querySelectorAll('.sugestoes button')].map(e=>e.textContent)")
+            confere(sug == ["Quero vender meu imóvel", "Aceito permuta", "Falar com o corretor"], f"Venda seu Imóvel: botões do assunto ({sug})")
+        if caminho == "/":
+            await pg.locator("#quinto-chat .lancador").click()
+            await pg.wait_for_timeout(300)
+            ola = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot .balao')].map(e=>e.textContent).join(' ')")
+            confere("Niterói" not in ola, f"abertura do chat sem cidade ({ola[:90]!r})")
+        await pg.context.close()
+
+
 async def cenario_sem_mic(nav):
     print("\n[v1.2] Navegador sem reconhecimento de voz")
     ctx = await nav.new_context(viewport={"width": 1280, "height": 900})
@@ -643,7 +676,7 @@ async def cenario_conversa_longa(nav):
 async def main():
     async with async_playwright() as p:
         nav = await p.chromium.launch(executable_path="/usr/bin/google-chrome", args=["--no-sandbox"])
-        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_v13, cenario_pagina_larga, cenario_sem_mic):
+        for c in (cenario_busca, cenario_imovel, cenario_venda_e_whatsapp, cenario_tag, cenario_baloes, cenario_conversa_longa, cenario_v12, cenario_v13, cenario_pagina_larga, cenario_v15, cenario_sem_mic):
             try:
                 await c(nav)
             except Exception as e:  # noqa: BLE001

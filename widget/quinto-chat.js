@@ -159,7 +159,7 @@
         de: "bot",
         texto: naPaginaDeImovel
           ? "Olá! Sou o assistente virtual da Quinto Imóveis. Quer saber algo sobre este imóvel, agendar uma visita ou ver opções parecidas?"
-          : "Olá! Sou o assistente virtual da Quinto Imóveis. Posso te ajudar a encontrar um imóvel pronto à venda em Niterói, ou a vender o seu. Como posso ajudar?",
+          : "Olá! Sou o assistente virtual da Quinto Imóveis. Posso te ajudar a encontrar um imóvel pronto à venda, ou a vender o seu. Como posso ajudar?",
       });
     }
     estado.vistas.forEach(desenhar);
@@ -560,11 +560,18 @@
   var abriuNestaPagina = false;
 
   function tipoDaPagina() {
-    var p = location.pathname;
-    if (/\/imovel\/\d+\//.test(p)) return "imovel";
+    var p = location.pathname.replace(/\/+$/, "") || "/";
+    if (/\/imovel\/\d+\//.test(location.pathname)) return "imovel";
+    if (/^\/(seu-imovel|venda-seu-imovel|anuncie)$/i.test(p)) return "venda";
+    if (/^\/(financiamento|calculadora-financiamento|correspondente)$/i.test(p)) return "financiamento";
+    if (/^\/(contato|fale-conosco)$/i.test(p)) return "contato";
+    if (/^\/(sobre|corretor|quem-somos)$/i.test(p)) return "corretor";
+    if (/^\/bairros?\//i.test(p)) return "bairro";
+    if (/^\/(noticias|blog)$/i.test(p)) return "blog";
     if (/noticia|blog|artigo/i.test(p) || document.querySelector('[class*="noticias__"]')) return "artigo";
     if (p === "/" || /^\/(index|home)/i.test(p)) return "geral";
-    if (/^\/(cat|buscar|busca|imoveis|bairro|bairros|venda)(\/|$)/i.test(p)) return "lista";
+    // busca e listas: /imovel/?cidade=..., /buscar, /cat/...
+    if (/^\/(imovel|imoveis|cat|buscar|busca|venda)(\/|$)/i.test(p)) return "lista";
     var links = {};
     var as = document.querySelectorAll('a[href*="/imovel/"]');
     for (var i = 0; i < as.length; i++) {
@@ -608,7 +615,47 @@
         sugestoes: ["Não achei o imóvel que procuro", "Quero ver outras opções", "Falar com o corretor"],
       };
     }
-    if (id === "artigo") {
+    if (id === "venda") {
+      return {
+        id: id,
+        texto: "Pensando em vender seu imóvel? O corretor Antônio Quinto cuida de tudo para você.",
+        chat: ola + "Conte um pouco sobre o seu imóvel e o corretor Antônio Quinto entra em contato para conversar sobre a avaliação e a venda. Por onde prefere começar?",
+        sugestoes: ["Quero vender meu imóvel", "Aceito permuta", "Falar com o corretor"],
+      };
+    }
+    if (id === "financiamento") {
+      return {
+        id: id,
+        texto: "Dúvidas sobre financiamento? O corretor Antônio Quinto tem parceria com correspondentes bancários credenciados.",
+        chat: ola + "Posso explicar como funciona o financiamento e levar você ao corretor Antônio Quinto, que tem parceria com correspondentes bancários credenciados. Por onde prefere começar?",
+        sugestoes: ["Como funciona o financiamento?", "Quais documentos preciso?", "Falar com o corretor"],
+      };
+    }
+    if (id === "contato") {
+      return {
+        id: id,
+        texto: "Prefere falar agora? Respondo na hora e levo seu contato ao corretor Antônio Quinto.",
+        chat: ola + "Me conte o que você procura, ou se quer vender seu imóvel, que eu já levo ao corretor Antônio Quinto. Por onde prefere começar?",
+        sugestoes: ["Procuro um imóvel", "Quero vender meu imóvel", "Falar com o corretor"],
+      };
+    }
+    if (id === "corretor") {
+      return {
+        id: id,
+        texto: "Quer conhecer o trabalho do corretor Antônio Quinto? Posso te ajudar a encontrar seu imóvel.",
+        chat: ola + "Posso te ajudar a encontrar seu imóvel, ou a vender o seu, com o atendimento direto do corretor Antônio Quinto. Por onde prefere começar?",
+        sugestoes: ["Procuro um imóvel", "Quero vender meu imóvel", "Falar com o corretor"],
+      };
+    }
+    if (id === "blog") {
+      return {
+        id: id,
+        texto: "Gostou do nosso blog? Posso te ajudar a encontrar um imóvel.",
+        chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda, ou a vender o seu. Como posso ajudar?",
+        sugestoes: ["Procuro um imóvel", "Não achei o imóvel que procuro", "Quero vender meu imóvel", "Falar com o corretor"],
+      };
+    }
+    if (id === "artigo" || id === "bairro") {
       var c = contextoArtigo || {};
       if (c.rua) {
         var umR = c.qtd === 1;
@@ -629,10 +676,11 @@
           sugestoes: ["Imóveis em " + c.bairro, "Não achei o imóvel que procuro", "Falar com o corretor"],
         };
       }
+      if (id === "bairro") return montarBalao("lista");
       return {
         id: "artigo",
-        texto: "Gostou do artigo? Posso te ajudar a encontrar um imóvel pronto em Niterói.",
-        chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda em Niterói, ou a vender o seu. Como posso ajudar?",
+        texto: "Gostou do artigo? Posso te ajudar a encontrar um imóvel pronto.",
+        chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda, ou a vender o seu. Como posso ajudar?",
         sugestoes: ["Apartamento em Icaraí", "Não achei o imóvel que procuro", "Quero vender meu imóvel", "Falar com o corretor"],
       };
     }
@@ -646,8 +694,8 @@
     }
     return {
       id: "geral",
-      texto: "Procurando imóvel em Niterói? Posso ajudar.",
-      chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda em Niterói, ou a vender o seu. Como posso ajudar?",
+      texto: "Procurando um imóvel? Posso ajudar.",
+      chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda, ou a vender o seu. Como posso ajudar?",
       sugestoes: ["Apartamento em Icaraí", "Não achei o imóvel que procuro", "Quero vender meu imóvel", "Falar com o corretor"],
     };
   }
@@ -801,6 +849,20 @@
     });
     return melhor ? { bairro: melhor.bairro, qtd: melhor.qtd } : null;
   }
+  // página de bairro: o bairro que está no título (ou no H1) e quantos imóveis temos lá
+  function bairroDaPagina(imoveis) {
+    var h1 = document.querySelector("h1");
+    var alvo = " " + semAcento((document.title || "") + " " + (h1 ? h1.textContent : "")).replace(/[^a-z0-9]+/g, " ") + " ";
+    var bairros = {};
+    imoveis.forEach(function (im) {
+      if (im.bairro) bairros[im.bairro] = (bairros[im.bairro] || 0) + 1;
+    });
+    var nomes = Object.keys(bairros).sort(function (a, b) { return b.length - a.length; });
+    for (var i = 0; i < nomes.length; i++) if (contar(alvo, nomes[i])) return { bairro: nomes[i], qtd: bairros[nomes[i]] };
+    var r = analisarArtigo(imoveis);
+    return r && !r.rua ? r : null;
+  }
+
   // busca o catálogo (uma vez) e chama pronto(imoveis); se demorar mais de 4 s, chama com []
   function carregarCatalogo(pronto) {
     var feito = false;
@@ -850,9 +912,9 @@
     var espera = TEMPO_BALAO;
     if (fechadoAqui()) espera = Math.max(TEMPO_BALAO, VOLTA_MS - (Date.now() - estado.fechouEm) + 500);
 
-    if (tipo === "artigo") {
+    if (tipo === "artigo" || tipo === "bairro") {
       carregarCatalogo(function (imoveis) {
-        contextoArtigo = analisarArtigo(imoveis);
+        contextoArtigo = tipo === "bairro" ? bairroDaPagina(imoveis) : analisarArtigo(imoveis);
         setTimeout(disparar, Math.max(0, espera - (Date.now() - carregouEm)));
       });
     } else {

@@ -14,6 +14,7 @@ export async function carregarCatalogo(url, agora = Date.now()) {
     const imoveis = (json.imoveis || []).map((i) => ({
       ...i,
       _bairro: normalizar(i.bairro),
+      _cidade: normalizar(i.cidade),
       _texto: normalizar([i.titulo, i.tipo, i.bairro, i.endereco, i.descricao, ...(i.caracteristicas || [])].join(" ")),
     }));
     memoria = { quando: agora, url, dados: { gerado_em: json.gerado_em, imoveis } };
@@ -49,7 +50,8 @@ export function buscar(imoveis, f = {}) {
   const limite = Math.min(Math.max(Number(f.limite) || 4, 1), 8);
 
   let lista = imoveis.filter((i) => {
-    if (bairros.length && !bairros.some((b) => i._bairro && (i._bairro.includes(b) || b.includes(i._bairro)))) return false;
+    // o filtro de bairro também aceita a cidade (ex.: ['Maricá'])
+    if (bairros.length && !bairros.some((b) => (i._bairro && (i._bairro.includes(b) || b.includes(i._bairro))) || (i._cidade && i._cidade === b))) return false;
     if (f.tipo && !semelhante(i.tipo, f.tipo)) return false;
     if (f.quartos_min && !(i.quartos >= f.quartos_min)) return false;
     if (f.quartos_max && !(i.quartos <= f.quartos_max)) return false;
@@ -84,6 +86,7 @@ export function resumo(i) {
     codigo: i.codigo,
     tipo: i.tipo,
     bairro: i.bairro,
+    ...(i.cidade && i.cidade !== "Niterói" ? { cidade: i.cidade } : {}),
     preco: i.preco,
     quartos: i.quartos,
     suites: i.suites,
@@ -94,7 +97,7 @@ export function resumo(i) {
 }
 
 export function detalhes(i) {
-  const { _bairro, _texto, foto, ...resto } = i;
+  const { _bairro, _cidade, _texto, foto, ...resto } = i;
   return resto;
 }
 
@@ -114,10 +117,12 @@ export function cartao(i) {
 
 export function resumoDoCatalogo(imoveis) {
   const porBairro = {};
+  const porCidade = {};
   let min = Infinity;
   let max = 0;
   for (const i of imoveis) {
     porBairro[i.bairro] = (porBairro[i.bairro] || 0) + 1;
+    if (i.cidade) porCidade[i.cidade] = (porCidade[i.cidade] || 0) + 1;
     if (i.preco) {
       min = Math.min(min, i.preco);
       max = Math.max(max, i.preco);
@@ -128,7 +133,11 @@ export function resumoDoCatalogo(imoveis) {
     .map(([b, n]) => `${b} (${n})`)
     .join(", ");
   const faixa = max ? `de R$ ${Math.round(min).toLocaleString("pt-BR")} a R$ ${Math.round(max).toLocaleString("pt-BR")}` : "não informada";
-  return `Catálogo atual: ${imoveis.length} imóveis à venda. Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
+  const cidades = Object.entries(porCidade)
+    .sort((a, b) => b[1] - a[1])
+    .map(([c, n]) => `${c} (${n})`)
+    .join(", ");
+  return `Catálogo atual: ${imoveis.length} imóveis à venda.${cidades ? ` Cidades: ${cidades}.` : ""} Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
 }
 
 // Títulos do ImobiBrasil às vezes terminam com " | Quinto" (nome do site): o cartão não precisa disso
