@@ -451,10 +451,16 @@ async def cenario_baloes(nav):
     confere(sug == ["Quero agendar uma visita", "Qual o condomínio e o IPTU?", "Tem opções parecidas?"], "sugestões do balão aparecem")
     dl = await pg.evaluate("(window.dataLayer||[]).filter(e=>e.event==='quinto_chat').map(e=>e.quinto_chat_acao)")
     confere("balao_exibido" in dl and "balao_clicado" in dl, f"eventos do balão no GA4 ({dl})")
-    # depois de abrir o chat, nenhum balão nas próximas páginas
+    # depois de abrir o chat, o balão continua acompanhando nas próximas páginas
     await pg.goto(BASE + "/imovel/4378274/apartamento-venda-niteroi-rj-icarai?balao=1")
     await pg.wait_for_timeout(2000)
-    confere(await balao(pg) is None, "depois de abrir o chat, não aparece mais balão")
+    t = await balao(pg)
+    confere((t or "").startswith("Gostou deste apartamento"), f"depois de abrir o chat, o balão volta na próxima página ({t})")
+    # com a conversa já começada, o clique no balão não repete o "Olá! Sou o assistente"
+    await pg.evaluate(SR + ".querySelector('.dica').click()")
+    await pg.wait_for_timeout(300)
+    ultima = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot .balao')].at(-1).textContent")
+    confere(ultima.startswith("Posso agendar uma visita"), f"no meio da conversa, sem nova apresentação ({ultima[:40]!r})")
     await pg.context.close()
 
     # 1b. sem rolar: aparece pelo tempo (aqui 2 s no lugar de 20 s)
@@ -474,10 +480,12 @@ async def cenario_baloes(nav):
     await pg.wait_for_timeout(1600)
     t = await balao(pg)
     confere(t == "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você.", f"no 3º imóvel: convite para a busca ({t})")
-    # limite de 3 por visita
+    # sem limite por visita: o 4º imóvel também tem balão
     await pg.goto(BASE + "/imovel/3333333/apartamento-venda-niteroi-rj-centro?balao=1")
     await pg.wait_for_timeout(1600)
-    confere(await balao(pg) is None, "limite de 3 balões por visita")
+    confere((await balao(pg) or "").startswith("Gostou deste apartamento"), "balão em toda página nova (4º imóvel)")
+    await pg.wait_for_timeout(2500)
+    confere(await balao(pg) is not None, "o balão fica na tela até a pessoa clicar ou fechar")
     await pg.context.close()
 
     # 3. fechar no X encerra os convites; aviso de cookies segura o balão
@@ -490,9 +498,49 @@ async def cenario_baloes(nav):
     await pg.wait_for_timeout(1300)
     confere(await balao(pg) is not None, "aviso aceito: o balão aparece")
     await pg.evaluate(SR + ".querySelector('.fechar-dica').click()")
+    confere(await balao(pg) is None, "fechou no X: some")
     await pg.goto(BASE + "/imovel/1111111/apartamento-venda-niteroi-rj-inga?balao=1")
+    await pg.evaluate("document.getElementById('aviso_privacidade').style.display='none'")  # cookies já aceitos
     await pg.wait_for_timeout(1800)
-    confere(await balao(pg) is None, "fechou no X: nenhum outro balão na visita")
+    confere(await balao(pg) is not None, "fechou no X: volta na próxima página")
+    await pg.context.close()
+
+    # 3b. fechou no X e continuou na mesma página: volta depois do tempo (aqui 3 s no lugar de 3 min)
+    pg = await nova_pagina(nav, 390, 800)
+    await pg.goto(BASE + "/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa?balao=1&volta=0.05")
+    await pg.wait_for_timeout(1500)
+    await pg.evaluate(SR + ".querySelector('.fechar-dica').click()")
+    await pg.wait_for_timeout(1500)
+    confere(await balao(pg) is None, "na mesma página, não volta logo")
+    await pg.reload()
+    await pg.wait_for_timeout(1300)
+    confere(await balao(pg) is None, "recarregar a página não traz o balão antes do tempo")
+    await pg.wait_for_timeout(2500)
+    confere(await balao(pg) is not None, "na mesma página, volta depois do tempo")
+    await pg.context.close()
+
+    # 5. notícias: cita os imóveis da rua (ou do bairro) de que o texto fala; o rodapé não conta
+    pg = await nova_pagina(nav, 390, 800)
+    await pg.goto(BASE + "/noticia/77/as-ruas-mais-charmosas-de-icarai?balao=1")
+    await pg.wait_for_timeout(1800)
+    t = await balao(pg)
+    confere(t == "Temos 1 imóvel à venda na Rua Otávio Carneiro, em Icaraí. Quer ver?", f"notícia sobre uma rua: cita o imóvel da rua ({t})")
+    await shot(pg, "v14_balao_noticia_celular")
+    await pg.evaluate(SR + ".querySelector('.dica').click()")
+    await pg.wait_for_timeout(300)
+    sug = await pg.evaluate("[..." + SR + ".querySelectorAll('.sugestoes button')].map(e=>e.textContent)")
+    confere(sug == ["Mostrar os imóveis da Rua Otávio Carneiro", "Imóveis em Icaraí", "Falar com o corretor"], f"sugestões da rua ({sug})")
+    await pg.context.close()
+    pg = await nova_pagina(nav, 390, 800)
+    await pg.goto(BASE + "/noticia/78/morar-em-santa-rosa?balao=1")
+    await pg.wait_for_timeout(1800)
+    t = await balao(pg)
+    confere(t == "Está pesquisando sobre Santa Rosa? Temos 1 imóvel à venda no bairro. Quer ver?", f"notícia sobre um bairro ({t})")
+    # 6. lista de imóveis
+    await pg.goto(BASE + "/cat/apartamentos?balao=1")
+    await pg.wait_for_timeout(1600)
+    t = await balao(pg)
+    confere(t == "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você.", f"lista de imóveis ({t})")
     await pg.context.close()
 
     # 4. saída (computador) e quem já chamou no WhatsApp

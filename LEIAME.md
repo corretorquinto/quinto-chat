@@ -167,16 +167,22 @@ O endereço `https://corretorquinto.github.io/quinto-chat/widget/demo.html?api=h
 
 ## Balões de convite
 
-O chat chama o visitante para a conversa com um balão ao lado do botão (nunca abre sozinho):
+O chat acompanha o visitante: em **toda página nova** aparece um balão ao lado do botão, com uma mensagem que combina com a página (o painel nunca abre sozinho):
 
-| Quando | Mensagem |
+| Página | Mensagem |
 |---|---|
-| Página de imóvel: ao chegar na descrição **ou** após 20 s, o que vier primeiro | "Gostou deste apartamento em Icaraí? Posso agendar uma visita ou te passar condomínio e IPTU." |
-| A partir do 3º imóvel visto na visita | "Ainda não achou o ideal? Me diga o que procura que o Antônio busca no mercado para você." |
+| Imóvel: ao chegar na descrição **ou** após o tempo, o que vier primeiro | "Gostou deste apartamento em Icaraí? Posso agendar uma visita ou te passar condomínio e IPTU." |
+| A partir do 3º imóvel visto na visita (uma vez) | "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você." |
+| Lista de imóveis (/cat/, busca, bairro) | "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você." |
+| Notícia que fala de uma rua onde há imóvel à venda | "Temos 2 imóveis à venda na Rua Otávio Carneiro, em Icaraí. Quer ver?" |
+| Notícia que fala de um bairro | "Está pesquisando sobre Santa Rosa? Temos 5 imóveis à venda no bairro. Quer ver?" |
+| Outra notícia | "Gostou do artigo? Posso te ajudar a encontrar um imóvel pronto em Niterói." |
 | Mouse indo fechar a aba (só computador) | "Antes de ir: quer que eu te avise de imóveis parecidos?" |
-| Outras páginas, após 20 s | "Procurando imóvel em Niterói? Posso ajudar." |
+| Demais páginas | "Procurando imóvel em Niterói? Posso ajudar." |
 
-Limites: no máximo 1 balão por página e 3 por visita; nenhum balão depois que a pessoa fecha no X, abre o chat, envia um formulário ou chama no WhatsApp; nenhum enquanto o aviso de cookies estiver na tela (o balão espera o aviso sumir). O balão some sozinho em 25 s. Ao clicar, o chat abre já no assunto do balão, com as sugestões certas.
+Nas notícias, o chat lê o texto (sem cabeçalho, menu e rodapé) e cruza com o catálogo: a rua mais citada que tenha imóvel à venda; se não houver, o bairro mais citado.
+
+Regras: o balão fica na tela até a pessoa clicar ou fechar no X. Fechou no X: some naquela página e volta na próxima página que ela abrir, ou depois de 3 minutos se ela continuar na mesma (`data-balao-volta-minutos`). Nenhum balão enquanto o aviso de cookies estiver na tela (espera o aviso sumir), nem com o chat aberto, nem depois que a pessoa enviou um formulário ou chamou no WhatsApp. Ao clicar, o chat abre já no assunto do balão, com as sugestões certas (no meio de uma conversa, sem se apresentar de novo).
 
 ## Conversa longa e limites
 
@@ -206,7 +212,7 @@ O chat envia ao `dataLayer` o evento `quinto_chat`, com o parâmetro `quinto_cha
 | `limite_conversa` | A conversa chegou a 15 mensagens e foi entregue ao corretor |
 | `microfone` | Usou o microfone para falar em vez de digitar |
 | `calculadora` | Clicou em "Simule seu financiamento" na ficha de busca |
-| `balao_exibido` / `balao_clicado` / `balao_fechado` | Balão de convite mostrado, clicado ou fechado no X (`quinto_chat_balao`: imovel, tres_imoveis, saida, geral) |
+| `balao_exibido` / `balao_clicado` / `balao_fechado` | Balão de convite mostrado, clicado ou fechado no X (`quinto_chat_balao`: imovel, tres_imoveis, lista, artigo_rua, artigo_bairro, artigo, saida, geral) |
 
 No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4** com os parâmetros acima. Marque `lead_enviado` e `whatsapp` como eventos-chave.
 
@@ -221,7 +227,8 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 | Campos e textos das fichas | `FICHAS` em `widget/quinto-chat.js` |
 | Sugestões iniciais do chat | `mostrarSugestoes()` em `widget/quinto-chat.js` |
 | Textos dos balões de convite | `montarBalao()` em `widget/quinto-chat.js` |
-| Tempo até o balão aparecer | atributo `data-balao-segundos` na linha do script (padrão 20) |
+| Tempo até o balão aparecer | atributo `data-balao-segundos` na linha do script (padrão 20; no site está 5) |
+| Tempo para o balão voltar depois de fechado | atributo `data-balao-volta-minutos` (padrão 3) |
 | Cor do chat | atributo `data-cor` na linha do script (padrão #E40951, o rosa do logo) |
 | Mensagens do WhatsApp do site | `mensagem()` em `gtm/whatsapp-inteligente-v3.html` |
 | Limite de mensagens por visitante | `LIMITE` em `worker/src/index.js` (20 a cada 10 min) |
@@ -256,6 +263,7 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Histórico de versões
 
+- **1.4 (07/11/2026):** balões em toda página nova, com mensagem de acordo com a página (imóvel, lista, notícia com a rua ou o bairro citado, geral); o balão fica até a pessoa clicar ou fechar; fechado no X, volta na próxima página ou depois de 3 minutos; sem limite por visita; para de vez depois que a pessoa falou com o corretor.
 - **1.3.1 (06/11/2026):** o chat se posiciona pela área visível da tela do celular. Na página inicial do site, um carrossel deixa a página mais larga que a tela (428 px numa tela de 375 px), e o botão do chat ficava meio escondido à direita.
 - **1.3 (06/11/2026):** uma ficha de cada vez (a nova substitui a anterior do mesmo tipo, e o agente sabe que ela já está aberta); na despedida, só agradece; sugestões não aparecem por cima de uma ficha; o "Prefiro falar no WhatsApp" da ficha usa o nome e o telefone da própria ficha; títulos dos cartões sem "| Quinto"; a mensagem do WhatsApp não repete "quero falar com o corretor"; quem não sabe o valor recebe a dica do link da calculadora; na página de um imóvel, toda mensagem de WhatsApp leva o código e o link dele.
 - **1.2 (06/11/2026):** lista de imóveis só em cartões; valores e telefones sem quebra de linha; o agente indica o botão do WhatsApp em vez de escrever o número; botão de microfone; valor obrigatório por faixas na busca, com link para a calculadora (endereço configurável em `CALCULADORA_URL`); as fichas completam tipo, bairro e quartos que o visitante disse; WhatsApp com nome e telefone direto e botão "Enviar mensagem pelo WhatsApp"; no computador abre o WhatsApp Web; textos mais naturais; a página de teste avisa quando está usando o agente de verdade.

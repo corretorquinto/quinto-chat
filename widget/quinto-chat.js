@@ -8,7 +8,9 @@
  *   data-cor          cor principal (padrão #E40951, o rosa da marca)
  *   data-posicao      "esquerda" ou "direita" (padrão direita: o botão de WhatsApp do ImobiBrasil fica no canto esquerdo)
  *   data-whatsapp     número com DDI e DDD (padrão 5521981036246)
- *   data-balao-segundos  tempo até o balão de convite aparecer (padrão 20)
+ *   data-balao-segundos  tempo até o balão de convite aparecer em cada página (padrão 20)
+ *   data-balao-volta-minutos  depois de fechado no X, o balão volta nessa mesma página após esse tempo (padrão 3)
+ *   data-catalogo  endereço do catálogo (para os balões das notícias citarem imóveis da rua ou do bairro)
  *   data-calculadora  endereço da calculadora de financiamento (padrão: o que vem do Worker, ou /calculadora-financiamento)
  *
  * Os contatos são entregues pelos formulários NATIVOS do ImobiBrasil, para cair no CRM:
@@ -30,6 +32,8 @@
     whatsapp: (script && script.getAttribute("data-whatsapp")) || "5521981036246",
     balaoSegundos: Number(script && script.getAttribute("data-balao-segundos")) || 20,
     calculadora: (script && script.getAttribute("data-calculadora")) || "https://www.quintoimoveis.com.br/calculadora-financiamento",
+    voltaMinutos: Number(script && script.getAttribute("data-balao-volta-minutos")) || 3,
+    catalogo: (script && script.getAttribute("data-catalogo")) || "https://corretorquinto.github.io/quinto-chat/catalogo/catalogo.json",
   };
   if (!cfg.api) {
     console.warn("[Quinto Chat] falta o atributo data-api na tag do script");
@@ -184,6 +188,7 @@
     lancador.setAttribute("aria-expanded", "true");
     lancador.classList.add("calmo");
     estado.abriu = true;
+    estado.abriuEm = location.pathname;
     estado.dicaVista = true;
     salvar();
     rolar();
@@ -204,12 +209,15 @@
   });
   dica.addEventListener("click", function (e) {
     if (e.target.classList.contains("fechar-dica")) {
-      // fechou no X: nenhum outro balão nesta visita
-      estado.baloesFechados = true;
+      // fechou no X: some nesta página; volta na próxima página ou depois de alguns minutos nesta
+      estado.fechouEm = Date.now();
+      estado.fechouPagina = location.pathname;
       salvar();
       dica.hidden = true;
       if (balaoAtual) medir("balao_fechado", { quinto_chat_balao: balaoAtual.id });
+      var voltar = balaoAtual && (paginaBalao || balaoAtual.base);
       balaoAtual = null;
+      if (voltar) setTimeout(function () { mostrarBalao(voltar, true); }, VOLTA_MS + 500);
       return;
     }
     abrirPeloBalao();
@@ -504,10 +512,11 @@
     return d;
   }
 
-  function mostrarSugestoes(dadas) {
+  function mostrarSugestoes(dadas, forcar) {
     if (estado.historico.length && !dadas) return;
     // com uma ficha (ou nome e telefone do WhatsApp) aberta na conversa, as sugestões atrapalham
-    if (lista.querySelector(".ficha")) {
+    // (a não ser que venham de um balão que a pessoa acabou de clicar)
+    if (!forcar && lista.querySelector(".ficha")) {
       sugestoes.innerHTML = "";
       return;
     }
@@ -527,19 +536,26 @@
   }
 
   // ======================================================================
-  // Balões que convidam para a conversa
-  //   1. página de imóvel: ao chegar na descrição OU após 20 s (o que vier primeiro)
-  //   2. a partir do 3º imóvel visto sem contato: oferece a busca personalizada
-  //   3. saída (só computador): quando o mouse vai fechar a aba
-  //   demais páginas: convite geral após 20 s
-  // Limites: 1 por página, 3 por visita; nenhum depois que a pessoa fecha no X,
-  // abre o chat ou já falou com o Antônio; nenhum com o aviso de cookies na tela.
+  // Balões que convidam para a conversa (acompanham o visitante em todas as páginas)
+  //   imóvel: ao chegar na descrição OU após o tempo (o que vier primeiro)
+  //   a partir do 3º imóvel visto: oferece a busca personalizada (uma vez)
+  //   lista de imóveis: "não achou? o Antônio busca no mercado"
+  //   notícia/artigo: cita imóveis da rua ou do bairro de que o texto fala (pelo catálogo)
+  //   saída (só computador): quando o mouse vai fechar a aba
+  //   demais páginas: convite geral
+  // Regras: aparece em toda página nova, fica até a pessoa clicar ou fechar; fechou no X,
+  // some nesta página e volta na próxima (ou depois de alguns minutos nesta). Nunca abre o
+  // painel sozinho, nunca junto com o aviso de cookies, e para de vez depois que a pessoa
+  // falou com o Antônio (formulário enviado ou WhatsApp).
   // ======================================================================
   var TEMPO_BALAO = cfg.balaoSegundos * 1000;
-  var MAX_BALOES = 3;
+  var VOLTA_MS = cfg.voltaMinutos * 60000;
+  var MAX_POR_PAGINA = 4;
   var balaoAtual = null;
   var baloesNestaPagina = 0;
   var carregouEm = Date.now();
+  var contextoArtigo = null; // preenchido pelo catálogo nas páginas de notícia
+  var paginaBalao = ""; // o balão "desta página" (é o que volta depois do X)
 
   function infoDoImovel() {
     var t = (document.title || "").replace(/\s*\|.*$/, "");
@@ -551,8 +567,36 @@
     return { tipo: tipo, fem: fem, bairro: bairro };
   }
 
+  function tipoDaPagina() {
+    var p = location.pathname;
+    if (/\/imovel\/\d+\//.test(p)) return "imovel";
+    if (/noticia|blog|artigo/i.test(p) || document.querySelector('[class*="noticias__"]')) return "artigo";
+    if (p === "/" || /^\/(index|home)/i.test(p)) return "geral";
+    if (/^\/(cat|buscar|busca|imoveis|bairro|bairros|venda)(\/|$)/i.test(p)) return "lista";
+    var links = {};
+    var as = document.querySelectorAll('a[href*="/imovel/"]');
+    for (var i = 0; i < as.length; i++) {
+      var m = (as[i].getAttribute("href") || "").match(/\/imovel\/(\d+)\//);
+      if (m) links[m[1]] = 1;
+    }
+    return Object.keys(links).length >= 3 ? "lista" : "geral";
+  }
+
+  // "Olá! Sou o assistente..." só quando a conversa ainda não começou
+  function jaApresentou() {
+    return (
+      estado.historico.length > 0 ||
+      estado.vistas.some(function (v) {
+        return v.doBalao;
+      })
+    );
+  }
+  function saudacao() {
+    return jaApresentou() ? "" : "Olá! Sou o assistente virtual da Quinto Imóveis. ";
+  }
+
   function montarBalao(id) {
-    var ola = "Olá! Sou o assistente virtual da Quinto Imóveis. ";
+    var ola = saudacao();
     if (id === "imovel") {
       var i = infoDoImovel();
       var este = i.tipo ? (i.fem ? "desta " : "deste ") + i.tipo + (i.bairro ? " em " + i.bairro : "") : "deste imóvel";
@@ -564,12 +608,43 @@
         sugestoes: ["Quero agendar uma visita", "Qual o condomínio e o IPTU?", "Tem opções parecidas?"],
       };
     }
-    if (id === "tres_imoveis") {
+    if (id === "tres_imoveis" || id === "lista") {
       return {
         id: id,
-        texto: "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você.",
+        texto:
+          id === "lista"
+            ? "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você."
+            : "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você.",
         chat: ola + "Me conte o que você procura (tipo, bairro, quartos, valor) e o corretor Antônio Quinto busca no mercado para você, inclusive imóveis que ainda não estão anunciados.",
         sugestoes: ["Não achei o imóvel que procuro", "Quero ver outras opções", "Falar com o corretor"],
+      };
+    }
+    if (id === "artigo") {
+      var c = contextoArtigo || {};
+      if (c.rua) {
+        var umR = c.qtd === 1;
+        var frase = "Temos " + c.qtd + (umR ? " imóvel" : " imóveis") + " à venda na " + c.rua + (c.bairro ? ", em " + c.bairro : "") + ". Quer ver?";
+        return {
+          id: "artigo_rua",
+          texto: frase,
+          chat: ola + frase.replace(" Quer ver?", " Quer que eu mostre" + (umR ? " o imóvel" : " as opções") + "?"),
+          sugestoes: ["Mostrar os imóveis da " + c.rua].concat(c.bairro ? ["Imóveis em " + c.bairro] : [], ["Falar com o corretor"]),
+        };
+      }
+      if (c.bairro) {
+        var umB = c.qtd === 1;
+        return {
+          id: "artigo_bairro",
+          texto: "Está pesquisando sobre " + c.bairro + "? Temos " + c.qtd + (umB ? " imóvel" : " imóveis") + " à venda no bairro. Quer ver?",
+          chat: ola + "Temos " + c.qtd + (umB ? " imóvel" : " imóveis") + " à venda em " + c.bairro + ". Quer que eu mostre? Se preferir, me diga o que procura.",
+          sugestoes: ["Imóveis em " + c.bairro, "Não achei o imóvel que procuro", "Falar com o corretor"],
+        };
+      }
+      return {
+        id: "artigo",
+        texto: "Gostou do artigo? Posso te ajudar a encontrar um imóvel pronto em Niterói.",
+        chat: ola + "Posso te ajudar a encontrar um imóvel pronto à venda em Niterói, ou a vender o seu. Como posso ajudar?",
+        sugestoes: ["Apartamento em Icaraí", "Não achei o imóvel que procuro", "Quero vender meu imóvel", "Falar com o corretor"],
       };
     }
     if (id === "saida") {
@@ -588,11 +663,14 @@
     };
   }
 
+  function fechadoAqui() {
+    return estado.fechouPagina === location.pathname && Date.now() - (estado.fechouEm || 0) < VOLTA_MS;
+  }
+
   function podeMostrarBalao() {
     return (
-      !estado.abriu && !estado.baloesFechados && !estado.chamou &&
-      (estado.baloes || 0) < MAX_BALOES && baloesNestaPagina < 1 &&
-      painel.hidden && guia.hidden
+      !estado.chamou && !fechadoAqui() && estado.abriuEm !== location.pathname &&
+      baloesNestaPagina < MAX_POR_PAGINA && dica.hidden && painel.hidden && guia.hidden
     );
   }
 
@@ -611,17 +689,14 @@
       return;
     }
     balaoAtual = montarBalao(id);
+    balaoAtual.base = id;
     baloesNestaPagina++;
     estado.baloes = (estado.baloes || 0) + 1;
     salvar();
     dica.querySelector(".dica-texto").textContent = balaoAtual.texto;
     dica.hidden = false;
     medir("balao_exibido", { quinto_chat_balao: balaoAtual.id });
-    // some sozinho depois de 25 s (sem contar como fechado)
-    var este = balaoAtual;
-    setTimeout(function () {
-      if (balaoAtual === este) dica.hidden = true;
-    }, 25000);
+    // fica na tela até a pessoa clicar ou fechar no X
   }
 
   function abrirPeloBalao() {
@@ -631,13 +706,97 @@
     if (!b) return abrir();
     medir("balao_clicado", { quinto_chat_balao: b.id });
     // sem conversa ainda: a mensagem do balão vira a saudação
-    if (!estado.historico.length) {
+    if (!jaApresentou()) {
       estado.vistas = [];
       lista.innerHTML = "";
     }
     abrir();
-    adicionar({ de: "bot", texto: b.chat });
-    mostrarSugestoes(b.sugestoes);
+    adicionar({ de: "bot", texto: b.chat, doBalao: true });
+    mostrarSugestoes(b.sugestoes, true);
+  }
+
+  // ---------- notícias: de que rua ou bairro o texto fala, e quantos imóveis temos lá ----------
+  function semAcento(t) {
+    return String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  }
+  function textoDoArtigo() {
+    var partes = [document.title || ""];
+    var h1 = document.querySelector("h1");
+    if (h1) partes.push(h1.textContent);
+    var ps = document.querySelectorAll("p, li, h2, h3");
+    for (var i = 0; i < ps.length; i++) {
+      var el = ps[i];
+      if (el.closest && el.closest("header, footer, nav, form, #quinto-chat")) continue;
+      partes.push(el.textContent);
+    }
+    return " " + semAcento(partes.join(" \n ")).replace(/[^a-z0-9]+/g, " ") + " ";
+  }
+  function contar(texto, nome) {
+    var n = " " + semAcento(nome).replace(/[^a-z0-9]+/g, " ").trim() + " ";
+    if (n.trim().length < 4) return 0;
+    return texto.split(n).length - 1;
+  }
+  function nomeDaRua(endereco) {
+    // "Rua Otávio Carneiro, 123" -> "Rua Otávio Carneiro"; o nome sem o "Rua" é o que se procura no texto
+    var e = String(endereco || "").split(/[,\-–]/)[0].trim();
+    var m = e.match(/^(rua|avenida|av\.?|estrada|travessa|alameda|praça|praca|largo|via)\s+(.+)$/i);
+    return m ? { completo: e.replace(/^av\.?\s/i, "Avenida "), nome: m[2] } : null;
+  }
+  function analisarArtigo(imoveis) {
+    var texto = textoDoArtigo();
+    var ruas = {};
+    var bairros = {};
+    imoveis.forEach(function (im) {
+      var r = nomeDaRua(im.endereco);
+      if (r && r.nome.length >= 6) {
+        var k = semAcento(r.nome);
+        if (!ruas[k]) ruas[k] = { rua: r.completo, nome: r.nome, qtd: 0, bairros: {} };
+        ruas[k].qtd++;
+        if (im.bairro) ruas[k].bairros[im.bairro] = (ruas[k].bairros[im.bairro] || 0) + 1;
+      }
+      if (im.bairro) bairros[im.bairro] = (bairros[im.bairro] || 0) + 1;
+    });
+    var melhorRua = null;
+    Object.keys(ruas).forEach(function (k) {
+      var r = ruas[k];
+      r.citacoes = contar(texto, r.nome);
+      if (r.citacoes && (!melhorRua || r.citacoes > melhorRua.citacoes || (r.citacoes === melhorRua.citacoes && r.qtd > melhorRua.qtd))) melhorRua = r;
+    });
+    if (melhorRua) {
+      var bs = Object.keys(melhorRua.bairros).sort(function (a, b) { return melhorRua.bairros[b] - melhorRua.bairros[a]; });
+      return { rua: melhorRua.rua, bairro: bs[0] || "", qtd: melhorRua.qtd };
+    }
+    // bairro mais citado; "Jardim Icaraí" não conta também como "Icaraí"
+    var nomes = Object.keys(bairros).sort(function (a, b) { return b.length - a.length; });
+    var melhor = null;
+    nomes.forEach(function (b) {
+      var n = contar(texto, b);
+      if (n) {
+        texto = texto.split(" " + semAcento(b).replace(/[^a-z0-9]+/g, " ").trim() + " ").join(" ");
+        if (!melhor || n > melhor.n) melhor = { bairro: b, qtd: bairros[b], n: n };
+      }
+    });
+    return melhor ? { bairro: melhor.bairro, qtd: melhor.qtd } : null;
+  }
+  function carregarContextoArtigo(pronto) {
+    var feito = false;
+    function fim() {
+      if (feito) return;
+      feito = true;
+      pronto();
+    }
+    setTimeout(fim, 4000); // catálogo lento: segue com o convite geral do artigo
+    try {
+      fetch(cfg.catalogo)
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          contextoArtigo = analisarArtigo((d && d.imoveis) || []);
+          fim();
+        })
+        .catch(fim);
+    } catch (e) {
+      fim();
+    }
   }
 
   function prepararBaloes() {
@@ -648,13 +807,14 @@
       if (estado.imoveisVistos.length > 50) estado.imoveisVistos = estado.imoveisVistos.slice(-50);
       salvar();
     }
-    if (!podeMostrarBalao()) return;
+    if (estado.chamou) return;
 
+    var tipo = tipoDaPagina();
+    var idPagina = tipo;
+    paginaBalao = tipo;
     // a partir do 3º imóvel, o convite é para a busca personalizada (uma vez por visita)
-    var idPagina = "geral";
-    if (idImovel) {
-      idPagina = estado.imoveisVistos.length >= 3 && !estado.ofereceuBusca ? "tres_imoveis" : "imovel";
-    }
+    if (tipo === "imovel" && estado.imoveisVistos.length >= 3 && !estado.ofereceuBusca) idPagina = "tres_imoveis";
+
     var disparou = false;
     function disparar() {
       if (disparou) return;
@@ -665,10 +825,20 @@
       }
       mostrarBalao(idPagina, true);
     }
+    // se a pessoa fechou no X nesta página há pouco (recarregou), espera dar o tempo de volta
+    var espera = TEMPO_BALAO;
+    if (fechadoAqui()) espera = Math.max(TEMPO_BALAO, VOLTA_MS - (Date.now() - estado.fechouEm) + 500);
 
-    // o que vier primeiro: chegar na descrição ou 20 s na página
-    setTimeout(disparar, TEMPO_BALAO);
-    var desc = idImovel && (document.getElementById("desc_descricao") || acharDescricao());
+    if (tipo === "artigo") {
+      carregarContextoArtigo(function () {
+        setTimeout(disparar, Math.max(0, espera - (Date.now() - carregouEm)));
+      });
+    } else {
+      setTimeout(disparar, espera);
+    }
+
+    // imóvel: aparece antes se a pessoa chegar na descrição
+    var desc = idImovel && !fechadoAqui() && (document.getElementById("desc_descricao") || acharDescricao());
     if (desc && window.IntersectionObserver) {
       var obs = new IntersectionObserver(function (itens) {
         if (itens.some(function (x) { return x.isIntersecting; })) {
@@ -679,12 +849,17 @@
       obs.observe(desc);
     }
 
-    // saída: só em computador com mouse
+    // saída: só em computador com mouse (troca o balão que estiver na tela)
     var temMouse = window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
     if (temMouse && window.innerWidth > 640) {
+      var saiu = false;
       document.addEventListener("mouseout", function (e) {
-        if (e.relatedTarget || e.clientY > 0) return;
+        if (e.relatedTarget || e.clientY > 0 || saiu) return;
         if (Date.now() - carregouEm < 5000) return;
+        if (estado.chamou || fechadoAqui() || !painel.hidden) return;
+        saiu = true;
+        dica.hidden = true;
+        balaoAtual = null;
         mostrarBalao("saida", false);
       });
     }

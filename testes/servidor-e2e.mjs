@@ -15,8 +15,8 @@ const ORIGEM = `http://127.0.0.1:${PORTA}`;
 const CATALOGO = {
   gerado_em: "2026-11-04T00:00:00+00:00",
   imoveis: [
-    { id: "4383031", codigo: "QI1626", tipo: "Apartamento", bairro: "Santa Rosa", preco: 400000, quartos: 2, suites: 1, vagas: 1, area: 80, condominio: 1128, iptu: 113, titulo: "Apartamento 2 quartos com suíte em Santa Rosa | Quinto", descricao: "Silêncio perto de tudo.", caracteristicas: [], url: `${ORIGEM}/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa`, foto: "" },
-    { id: "4378274", codigo: "QI1623", tipo: "Apartamento", bairro: "Icaraí", preco: 599000, quartos: 3, suites: 1, vagas: 1, area: 100, titulo: "Apartamento 3 quartos com suíte, 100 m² em Icaraí", descricao: "Varanda.", caracteristicas: [], url: `${ORIGEM}/imovel/4378274/apartamento-venda-niteroi-rj-icarai`, foto: "" },
+    { id: "4383031", codigo: "QI1626", tipo: "Apartamento", bairro: "Santa Rosa", endereco: "Rua Mário Viana", preco: 400000, quartos: 2, suites: 1, vagas: 1, area: 80, condominio: 1128, iptu: 113, titulo: "Apartamento 2 quartos com suíte em Santa Rosa | Quinto", descricao: "Silêncio perto de tudo.", caracteristicas: [], url: `${ORIGEM}/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa`, foto: "" },
+    { id: "4378274", codigo: "QI1623", tipo: "Apartamento", bairro: "Icaraí", endereco: "Rua Otávio Carneiro, 100", preco: 599000, quartos: 3, suites: 1, vagas: 1, area: 100, titulo: "Apartamento 3 quartos com suíte, 100 m² em Icaraí", descricao: "Varanda.", caracteristicas: [], url: `${ORIGEM}/imovel/4378274/apartamento-venda-niteroi-rj-icarai`, foto: "" },
   ],
 };
 
@@ -69,12 +69,16 @@ const ENV = {
 };
 const registros = [];
 
-function pagina(arquivo, { imovel = "", caminho = "/", balao = null } = {}) {
+function pagina(arquivo, { imovel = "", caminho = "/", balao = null, volta = null } = {}) {
   const ler = (f) => fs.readFileSync(path.join(DIR, "site", f), "utf8");
   const tag = fs.existsSync(path.join(RAIZ, "gtm", "whatsapp-inteligente-v3.html")) ? '<script src="/gtm/tag.js"></script>' : "";
   return ler(arquivo)
     .replace("__WHATS__", ler("whats.html").replace("__IMOVEL__", imovel).replace("__PATH__", caminho))
-    .replace("__SCRIPTS__", tag + `<script src="/widget/quinto-chat.js" data-api="${ORIGEM}"${balao ? ` data-balao-segundos="${Number(balao)}"` : ""} defer></script>`);
+    .replace(
+      "__SCRIPTS__",
+      tag +
+        `<script src="/widget/quinto-chat.js" data-api="${ORIGEM}" data-catalogo="/catalogo.json"${balao ? ` data-balao-segundos="${Number(balao)}"` : ""}${volta ? ` data-balao-volta-minutos="${Number(volta)}"` : ""} defer></script>`
+    );
 }
 
 function enviarLatin1(res, html, status = 200) {
@@ -118,8 +122,15 @@ http
     }
     if (u.pathname === "/contato" || u.pathname === "/contato/") return enviarLatin1(res, pagina("contato.html", { caminho: "/contato" }));
     const im = u.pathname.match(/^\/imovel\/(\d+)\//);
-    if (im) return enviarLatin1(res, pagina("imovel.html", { imovel: im[1], caminho: u.pathname, balao: u.searchParams.get("balao") }));
-    if (u.pathname === "/" ) return enviarLatin1(res, pagina("inicio.html", { balao: u.searchParams.get("balao") }));
+    if (im) return enviarLatin1(res, pagina("imovel.html", { imovel: im[1], caminho: u.pathname, balao: u.searchParams.get("balao"), volta: u.searchParams.get("volta") }));
+    const opcoes = { caminho: u.pathname, balao: u.searchParams.get("balao"), volta: u.searchParams.get("volta") };
+    if (u.pathname === "/") return enviarLatin1(res, pagina("inicio.html", opcoes));
+    if (u.pathname.startsWith("/noticia/")) return enviarLatin1(res, pagina(u.pathname.includes("santa-rosa") ? "noticia-bairro.html" : "noticia.html", opcoes));
+    if (u.pathname.startsWith("/cat/")) return enviarLatin1(res, pagina("lista.html", opcoes));
+    if (u.pathname === "/catalogo.json") {
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      return res.end(JSON.stringify(CATALOGO));
+    }
     if (["/chat", "/saude"].includes(u.pathname)) {
       // cada navegador de teste usa um "IP" próprio (o limite por IP vale por cenário)
       if (req.method === "POST") {
