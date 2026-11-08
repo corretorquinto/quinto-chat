@@ -171,7 +171,7 @@ O chat acompanha o visitante: em **toda página nova** aparece um balão ao lado
 
 | Página | Mensagem |
 |---|---|
-| Imóvel: ao chegar na descrição **ou** após o tempo, o que vier primeiro | "Gostou deste apartamento em Icaraí? Posso agendar uma visita ou te passar condomínio e IPTU." |
+| Imóvel: ao chegar na descrição **ou** após o tempo, o que vier primeiro | "Gostou deste apartamento em Icaraí? Tiro suas dúvidas e agendo sua visita." |
 | A partir do 3º imóvel visto na visita (uma vez) | "Ainda não achou o ideal? Me diga o que procura que o corretor Antônio Quinto busca no mercado para você." |
 | Lista de imóveis (/cat/, busca, bairro) | "Não achou o que procura? O corretor Antônio Quinto busca no mercado para você." |
 | Notícia que fala de uma rua onde há imóvel à venda | "Temos 2 imóveis à venda na Rua Otávio Carneiro, em Icaraí. Quer ver?" |
@@ -263,6 +263,7 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Histórico de versões
 
+- **1.4.1 (07/11/2026):** balão do imóvel: "Gostou deste apartamento em Icaraí? Tiro suas dúvidas e agendo sua visita."; ao clicar, "Por onde prefere começar?" com os botões "Quero conhecer o imóvel", "Tenho uma pergunta" e "Ver opções semelhantes"; corrigido: depois de abrir o chat numa página, o balão não voltava mais a essa página na mesma aba.
 - **1.4 (07/11/2026):** balões em toda página nova, com mensagem de acordo com a página (imóvel, lista, notícia com a rua ou o bairro citado, geral); o balão fica até a pessoa clicar ou fechar; fechado no X, volta na próxima página ou depois de 3 minutos; sem limite por visita; para de vez depois que a pessoa falou com o corretor.
 - **1.3.1 (06/11/2026):** o chat se posiciona pela área visível da tela do celular. Na página inicial do site, um carrossel deixa a página mais larga que a tela (428 px numa tela de 375 px), e o botão do chat ficava meio escondido à direita.
 - **1.3 (06/11/2026):** uma ficha de cada vez (a nova substitui a anterior do mesmo tipo, e o agente sabe que ela já está aberta); na despedida, só agradece; sugestões não aparecem por cima de uma ficha; o "Prefiro falar no WhatsApp" da ficha usa o nome e o telefone da própria ficha; títulos dos cartões sem "| Quinto"; a mensagem do WhatsApp não repete "quero falar com o corretor"; quem não sabe o valor recebe a dica do link da calculadora; na página de um imóvel, toda mensagem de WhatsApp leva o código e o link dele.

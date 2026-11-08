@@ -188,7 +188,7 @@
     lancador.setAttribute("aria-expanded", "true");
     lancador.classList.add("calmo");
     estado.abriu = true;
-    estado.abriuEm = location.pathname;
+    abriuNestaPagina = true; // só vale enquanto a pessoa está nesta página (não fica guardado na aba)
     estado.dicaVista = true;
     salvar();
     rolar();
@@ -556,6 +556,7 @@
   var carregouEm = Date.now();
   var contextoArtigo = null; // preenchido pelo catálogo nas páginas de notícia
   var paginaBalao = ""; // o balão "desta página" (é o que volta depois do X)
+  var abriuNestaPagina = false;
 
   function infoDoImovel() {
     var t = (document.title || "").replace(/\s*\|.*$/, "");
@@ -600,12 +601,11 @@
     if (id === "imovel") {
       var i = infoDoImovel();
       var este = i.tipo ? (i.fem ? "desta " : "deste ") + i.tipo + (i.bairro ? " em " + i.bairro : "") : "deste imóvel";
-      var esse = i.tipo ? (i.fem ? "a esta " : "a este ") + i.tipo : "a este imóvel";
       return {
         id: id,
-        texto: "Gostou " + este + "? Posso agendar uma visita ou te passar condomínio e IPTU.",
-        chat: ola + "Posso agendar uma visita " + esse + ", passar condomínio e IPTU ou mostrar opções parecidas. O que prefere?",
-        sugestoes: ["Quero agendar uma visita", "Qual o condomínio e o IPTU?", "Tem opções parecidas?"],
+        texto: "Gostou " + este + "? Tiro suas dúvidas e agendo sua visita.",
+        chat: ola + "Por onde prefere começar?",
+        sugestoes: ["Quero conhecer o imóvel", "Tenho uma pergunta", "Ver opções semelhantes"],
       };
     }
     if (id === "tres_imoveis" || id === "lista") {
@@ -669,7 +669,7 @@
 
   function podeMostrarBalao() {
     return (
-      !estado.chamou && !fechadoAqui() && estado.abriuEm !== location.pathname &&
+      !estado.chamou && !fechadoAqui() && !abriuNestaPagina &&
       baloesNestaPagina < MAX_POR_PAGINA && dica.hidden && painel.hidden && guia.hidden
     );
   }

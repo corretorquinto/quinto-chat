@@ -440,15 +440,15 @@ async def cenario_baloes(nav):
     await pg.evaluate("document.getElementById('desc_descricao').scrollIntoView({block:'center'})")
     await pg.wait_for_timeout(700)
     t = await balao(pg)
-    confere(t == "Gostou deste apartamento em Santa Rosa? Posso agendar uma visita ou te passar condomínio e IPTU.", f"ao chegar na descrição: balão do imóvel ({t})")
+    confere(t == "Gostou deste apartamento em Santa Rosa? Tiro suas dúvidas e agendo sua visita.", f"ao chegar na descrição: balão do imóvel ({t})")
     await shot(pg, "balao-computador")
     # clicar abre o chat continuando o assunto
     await pg.evaluate(SR + ".querySelector('.dica').click()")
     await pg.wait_for_timeout(300)
     msgs = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot .balao')].map(e=>e.textContent)")
     sug = await pg.evaluate("[..." + SR + ".querySelectorAll('.sugestoes button')].map(e=>e.textContent)")
-    confere(len(msgs) == 1 and "agendar uma visita a este apartamento" in msgs[0], f"clique no balão abre o chat no mesmo assunto ({msgs})")
-    confere(sug == ["Quero agendar uma visita", "Qual o condomínio e o IPTU?", "Tem opções parecidas?"], "sugestões do balão aparecem")
+    confere(msgs == ["Olá! Sou o assistente virtual da Quinto Imóveis. Por onde prefere começar?"], f"clique no balão abre o chat com a pergunta ({msgs})")
+    confere(sug == ["Quero conhecer o imóvel", "Tenho uma pergunta", "Ver opções semelhantes"], f"sugestões do balão aparecem ({sug})")
     dl = await pg.evaluate("(window.dataLayer||[]).filter(e=>e.event==='quinto_chat').map(e=>e.quinto_chat_acao)")
     confere("balao_exibido" in dl and "balao_clicado" in dl, f"eventos do balão no GA4 ({dl})")
     # depois de abrir o chat, o balão continua acompanhando nas próximas páginas
@@ -456,11 +456,17 @@ async def cenario_baloes(nav):
     await pg.wait_for_timeout(2000)
     t = await balao(pg)
     confere((t or "").startswith("Gostou deste apartamento"), f"depois de abrir o chat, o balão volta na próxima página ({t})")
+    # abriu o chat nesta página e voltou a ela depois (ou recarregou): o balão aparece de novo
+    await pg.goto(BASE + "/imovel/4383031/apartamento-venda-niteroi-rj-santa-rosa?balao=1")
+    await pg.wait_for_timeout(1800)
+    confere(await balao(pg) is not None, "voltar a uma página onde já abriu o chat: o balão aparece de novo")
+    await pg.goto(BASE + "/imovel/4378274/apartamento-venda-niteroi-rj-icarai?balao=1")
+    await pg.wait_for_timeout(1800)
     # com a conversa já começada, o clique no balão não repete o "Olá! Sou o assistente"
     await pg.evaluate(SR + ".querySelector('.dica').click()")
     await pg.wait_for_timeout(300)
     ultima = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot .balao')].at(-1).textContent")
-    confere(ultima.startswith("Posso agendar uma visita"), f"no meio da conversa, sem nova apresentação ({ultima[:40]!r})")
+    confere(ultima == "Por onde prefere começar?", f"no meio da conversa, sem nova apresentação ({ultima[:40]!r})")
     await pg.context.close()
 
     # 1b. sem rolar: aparece pelo tempo (aqui 2 s no lugar de 20 s)
