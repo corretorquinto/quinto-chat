@@ -188,7 +188,7 @@ O chat acompanha o visitante: em **toda página nova** aparece um balão ao lado
 
 Nas notícias, o chat lê o texto (sem cabeçalho, menu e rodapé) e cruza com o catálogo: a rua mais citada que tenha imóvel à venda; se não houver, o bairro mais citado.
 
-Regras: o balão fica na tela até a pessoa clicar ou fechar no X. Fechou no X: some naquela página e volta na próxima página que ela abrir, ou depois de 3 minutos se ela continuar na mesma (`data-balao-volta-minutos`). Nenhum balão enquanto o aviso de cookies estiver na tela (espera o aviso sumir), nem com o chat aberto, nem depois que a pessoa enviou um formulário ou chamou no WhatsApp. Ao clicar, o chat abre já no assunto do balão, com as sugestões certas (no meio de uma conversa, sem se apresentar de novo).
+Regras: o balão fica na tela até a pessoa clicar ou fechar no X. Fechou no X: some naquela página e volta na próxima página que ela abrir, ou depois de 3 minutos se ela continuar na mesma (`data-balao-volta-minutos`). Com o aviso de cookies na tela, o balão aparece acima dele (não espera o aviso sumir). Nenhum balão com o chat aberto, nem depois que a pessoa enviou um formulário ou chamou no WhatsApp. Ao clicar, o chat abre já no assunto do balão, com as sugestões certas (no meio de uma conversa, sem se apresentar de novo).
 
 ## Conversa longa e limites
 
@@ -269,6 +269,7 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Histórico de versões
 
+- **1.5.1 (07/11/2026):** o balão não espera mais o aviso de cookies: aparece no tempo normal e, enquanto o aviso estiver na tela, fica acima dele.
 - **1.5 (07/11/2026):** balões para Venda seu Imóvel, Financiamento/Calculadora/Correspondente, Contato, Corretor, páginas de bairro e lista do blog; a busca (/imovel/?...) é reconhecida como lista; textos sem "Niterói" ("Procurando um imóvel? Posso ajudar."); a IA atende Niterói e região (Maricá, São Gonçalo), a busca aceita cidade e o resumo do catálogo mostra as cidades.
 - **1.4.2 (07/11/2026):** o balão do imóvel passa a ser sempre "Gostou deste imóvel? Tiro suas dúvidas e agendo sua visita." (sem tipo nem bairro: o título da página não é confiável). O aviso de cookies só segura o balão se estiver realmente visível na tela, e por no máximo 12 segundos (`data-cookies-espera-segundos`); se continuar na tela, o balão aparece acima dele.
 - **1.4.1 (07/11/2026):** balão do imóvel: "Gostou deste apartamento em Icaraí? Tiro suas dúvidas e agendo sua visita."; ao clicar, "Por onde prefere começar?" com os botões "Quero conhecer o imóvel", "Tenho uma pergunta" e "Ver opções semelhantes"; corrigido: depois de abrir o chat numa página, o balão não voltava mais a essa página na mesma aba.

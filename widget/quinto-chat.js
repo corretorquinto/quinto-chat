@@ -33,7 +33,8 @@
     balaoSegundos: Number(script && script.getAttribute("data-balao-segundos")) || 20,
     calculadora: (script && script.getAttribute("data-calculadora")) || "https://www.quintoimoveis.com.br/calculadora-financiamento",
     voltaMinutos: Number(script && script.getAttribute("data-balao-volta-minutos")) || 3,
-    cookiesEspera: Number(script && script.getAttribute("data-cookies-espera-segundos")) || 12,
+    // quanto o balão espera o aviso de cookies sumir (padrão 0: não espera, aparece acima do aviso)
+    cookiesEspera: Number(script && script.getAttribute("data-cookies-espera-segundos")) || 0,
     catalogo: (script && script.getAttribute("data-catalogo")) || "https://corretorquinto.github.io/quinto-chat/catalogo/catalogo.json",
   };
   if (!cfg.api) {
@@ -746,12 +747,12 @@
     }
   }
 
-  // espera = true: se o aviso de cookies estiver na tela, aguarda ele sumir (no máximo alguns segundos;
-  // depois disso o balão aparece mesmo assim, acima do aviso)
+  // aviso de cookies na tela: o balão aparece acima dele (se data-cookies-espera-segundos estiver
+  // definido, espera esse tempo pelo aviso sumir antes de aparecer)
   function mostrarBalao(id, espera, desde) {
     if (!podeMostrarBalao()) return;
     desde = desde || Date.now();
-    if (cookiesNaTela()) {
+    if (cookiesNaTela() && cfg.cookiesEspera > 0) {
       if (!espera) return;
       if (Date.now() - desde < cfg.cookiesEspera * 1000) {
         setTimeout(function () { mostrarBalao(id, true, desde); }, 1000);
