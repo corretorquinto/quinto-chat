@@ -14,11 +14,12 @@ Visitante ──> chat no site ──> Worker (Cloudflare) ──> API de IA (An
 
 | Pasta | O que é |
 |---|---|
-| `catalogo/gerar_catalogo.py` | Lê o feed XML do ImobiBrasil e gera o `catalogo.json` |
+| `catalogo/gerar_catalogo.py` | Lê o feed XML do ImobiBrasil, completa com a listagem do próprio site e gera o `catalogo.json` (imóveis + resumo das páginas e artigos) |
 | `.github/workflows/catalogo.yml` | Roda o gerador a cada 3 horas e publica o catálogo |
 | `worker/` | Backend: guarda a chave da API e executa o agente |
 | `worker/src/prompt.js` | **As regras de atendimento do agente** |
 | `worker/quinto-chat-worker.js` | Backend em arquivo único, para colar no painel da Cloudflare |
+| `worker/src/aovivo.js` | Leitura ao vivo da página do imóvel em que o visitante está |
 | `worker/src/provedores.js` | Conexão com os provedores de IA (Anthropic, OpenAI e compatíveis) |
 | `widget/quinto-chat.js` | O chat que aparece no site (fichas e entrega pelos formulários nativos) |
 | `widget/demo.html` | Página de teste (simulada ou com o agente real) |
@@ -264,11 +265,14 @@ No GTM: acionador **Evento personalizado** `quinto_chat` + tag **Evento do GA4**
 
 ## Testes
 
-- `cd worker && npm run teste`: 38 testes do backend com a API simulada.
+- `python testes/test_catalogo.py`: 10 testes do gerador do catálogo (leitura do site, sem rede).
+- `cd worker && npm run teste`: 45 testes do backend com a API simulada.
 - `node testes/servidor-e2e.mjs` e, em outro terminal, `python testes/e2e.py`: 49 verificações de ponta a ponta no Chrome, com réplicas exatas dos formulários do ImobiBrasil (mesmos campos, validações e codificação ISO-8859-1). Cobrem as fichas, o preenchimento do Fale Conosco e do formulário do imóvel, o código anti-robô, o WhatsApp Lead e a tag v3.
 
 ## Histórico de versões
 
+- **2.1 (10/11/2026):** leitura do site conferida nas páginas reais (links com hífen, imóvel sem código de referência, descrição e características da página, artigos com o título certo). Na página de um imóvel, o Worker lê a página na hora (`worker/src/aovivo.js`): preço, condomínio, IPTU, endereço, descrição e características atualizados, inclusive de imóvel recém-cadastrado (`LER_PAGINA_AO_VIVO` = "nao" desliga). Busca por rua (pelo endereço ou pela rua citada no anúncio). O catálogo passa a registrar a data em que cada imóvel entrou no site e os que saíram (`historico_desde`, `desde`, `sairam`); a ferramenta `imoveis_que_sairam` responde sobre eles, sempre como "saiu do site" (vendido ou retirado).
+- **2.0 (10/11/2026):** o catálogo passa a ter tudo o que está à venda no site: além do feed (que vinha com 55 de 85 imóveis), o gerador lê a listagem do próprio site e acrescenta o que falta, em qualquer cidade; guarda também o resumo das páginas e dos artigos do blog. O agente ganhou: busca por cidade, "mais recentes primeiro", a ferramenta `consultar_site` (responde sobre blog, bairros, financiamento, o corretor, com o link) e o trecho do texto da página em que o visitante está. O microfone não corta mais nas pausas: ouve até a pessoa tocar de novo ou ficar 5 segundos em silêncio (`data-mic-pausa-segundos`). O `/saude` do Worker mostra de onde vieram os imóveis (`fontes`) e quantas páginas do site o agente conhece.
 - **1.5.1 (07/11/2026):** o balão não espera mais o aviso de cookies: aparece no tempo normal e, enquanto o aviso estiver na tela, fica acima dele.
 - **1.5 (07/11/2026):** balões para Venda seu Imóvel, Financiamento/Calculadora/Correspondente, Contato, Corretor, páginas de bairro e lista do blog; a busca (/imovel/?...) é reconhecida como lista; textos sem "Niterói" ("Procurando um imóvel? Posso ajudar."); a IA atende Niterói e região (Maricá, São Gonçalo), a busca aceita cidade e o resumo do catálogo mostra as cidades.
 - **1.4.2 (07/11/2026):** o balão do imóvel passa a ser sempre "Gostou deste imóvel? Tiro suas dúvidas e agendo sua visita." (sem tipo nem bairro: o título da página não é confiável). O aviso de cookies só segura o balão se estiver realmente visível na tela, e por no máximo 12 segundos (`data-cookies-espera-segundos`); se continuar na tela, o balão aparece acima dele.

@@ -11,6 +11,7 @@
  *   data-balao-segundos  tempo até o balão de convite aparecer em cada página (padrão 20)
  *   data-balao-volta-minutos  depois de fechado no X, o balão volta nessa mesma página após esse tempo (padrão 3)
  *   data-catalogo  endereço do catálogo (para os balões das notícias citarem imóveis da rua ou do bairro)
+ *   data-mic-pausa-segundos  quanto silêncio o microfone tolera antes de parar de ouvir (padrão 5)
  *   data-calculadora  endereço da calculadora de financiamento (padrão: o que vem do Worker, ou /calculadora-financiamento)
  *
  * Os contatos são entregues pelos formulários NATIVOS do ImobiBrasil, para cair no CRM:
@@ -32,6 +33,7 @@
     whatsapp: (script && script.getAttribute("data-whatsapp")) || "5521981036246",
     balaoSegundos: Number(script && script.getAttribute("data-balao-segundos")) || 20,
     calculadora: (script && script.getAttribute("data-calculadora")) || "https://www.quintoimoveis.com.br/calculadora-financiamento",
+    micPausa: Number(script && script.getAttribute("data-mic-pausa-segundos")) || 5,
     voltaMinutos: Number(script && script.getAttribute("data-balao-volta-minutos")) || 3,
     // quanto o balão espera o aviso de cookies sumir (padrão 0: não espera, aparece acima do aviso)
     cookiesEspera: Number(script && script.getAttribute("data-cookies-espera-segundos")) || 0,
@@ -259,54 +261,145 @@
     }, 5000);
   }
   function pararMic() {
-    if (rec && gravando) {
-      try {
-        rec.stop();
-      } catch (e) {}
-    }
+    encerrarMic();
   }
-  botaoMic.addEventListener("click", function () {
-    if (gravando) return pararMic();
-    var base = campo.value ? campo.value.replace(/\s*$/, " ") : "";
+  // O microfone fica ouvindo até a pessoa tocar nele de novo ou ficar alguns segundos em silêncio.
+  // Pausas no meio da fala não encerram: se o navegador parar de ouvir por conta própria (o do celular
+  // para a cada pausa), o chat retoma sozinho e continua o texto de onde parou.
+  var MIC_PAUSA_MS = cfg.micPausa * 1000;
+  var MIC_MAX_MS = 120000;
+  var mic = null; // sessão de escuta em andamento
+
+  function juntarFala(results) {
+    // Computador: cada resultado é um trecho novo. Celular (Android): cada resultado repete o anterior
+    // e acrescenta ("quero" -> "quero um" -> "quero um apartamento"). Trata os dois casos.
+    var partes = [];
+    for (var i = 0; i < results.length; i++) {
+      var t = String(results[i][0].transcript || "").replace(/\s+/g, " ").trim();
+      if (!t) continue;
+      var ultimo = partes.length ? partes[partes.length - 1] : "";
+      if (ultimo && t.toLowerCase().indexOf(ultimo.toLowerCase()) === 0) partes[partes.length - 1] = t;
+      else partes.push(t);
+    }
+    return partes.join(" ");
+  }
+
+  function encerrarMic() {
+    var m = mic;
+    if (!m) return;
+    mic = null;
+    gravando = false;
+    clearTimeout(m.silencio);
+    clearTimeout(m.maximo);
     try {
-      rec = new Reconhecimento();
+      m.rec.onend = null;
+      m.rec.stop();
+    } catch (e) {}
+    botaoMic.classList.remove("gravando");
+    botaoMic.setAttribute("aria-label", "Falar em vez de digitar");
+    if (/^(Pode falar|Estou ouvindo)/.test(campo.placeholder)) campo.placeholder = placeholderPadrao;
+    if (!campo.disabled) campo.focus();
+  }
+
+  function vigiarSilencio(m) {
+    clearTimeout(m.silencio);
+    m.silencio = setTimeout(function () {
+      if (mic !== m) return;
+      encerrarMic();
+      if (!m.falou) avisoMic("Não ouvi nada. Toque no microfone e fale de novo");
+    }, m.falou ? MIC_PAUSA_MS : Math.max(MIC_PAUSA_MS, 8000)); // antes da primeira palavra, espera um pouco mais
+  }
+
+  function ouvir(m) {
+    var r;
+    try {
+      r = new Reconhecimento();
     } catch (e) {
       botaoMic.hidden = true;
-      return;
+      return encerrarMic();
     }
-    rec.lang = "pt-BR";
-    rec.interimResults = true;
-    rec.continuous = false;
-    rec.maxAlternatives = 1;
-    rec.onresult = function (ev) {
-      var t = "";
-      for (var i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
-      campo.value = (base + t).slice(0, 800);
+    m.rec = r;
+    m.base = campo.value ? campo.value.replace(/\s*$/, " ") : "";
+    r.lang = "pt-BR";
+    r.interimResults = true;
+    r.continuous = true;
+    r.maxAlternatives = 1;
+    r.onresult = function (ev) {
+      if (mic !== m) return;
+      var t = juntarFala(ev.results);
+      if (!t) return;
+      m.falou = true;
+      campo.value = (m.base + t).slice(0, 800);
       ajustarAltura();
+      campo.scrollTop = campo.scrollHeight;
+      vigiarSilencio(m);
     };
-    rec.onerror = function (ev) {
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") avisoMic("Permita o microfone no navegador para falar");
-      else if (ev.error === "no-speech") avisoMic("Não ouvi nada. Toque no microfone e fale de novo");
-      else if (ev.error !== "aborted") avisoMic("Não consegui ouvir agora. Pode digitar?");
+    r.onerror = function (ev) {
+      if (mic !== m) return;
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        avisoMic("Permita o microfone no navegador para falar");
+        encerrarMic();
+      } else if (ev.error === "audio-capture") {
+        avisoMic("Não encontrei o microfone. Pode digitar?");
+        encerrarMic();
+      } else if (ev.error === "network") {
+        avisoMic("Não consegui ouvir agora. Pode digitar?");
+        encerrarMic();
+      }
+      // "no-speech" e "aborted": o onend decide se retoma
     };
-    rec.onend = function () {
-      gravando = false;
-      botaoMic.classList.remove("gravando");
-      botaoMic.setAttribute("aria-label", "Falar em vez de digitar");
-      if (campo.placeholder === "Pode falar, estou ouvindo...") campo.placeholder = placeholderPadrao;
-      if (!campo.disabled) campo.focus();
+    r.onend = function () {
+      if (mic !== m) return;
+      // o navegador parou sozinho (pausa na fala): retoma, a menos que o silêncio já tenha passado do limite
+      m.retomadas = (m.retomadas || 0) + 1;
+      if (m.retomadas > 40) return encerrarMic();
+      setTimeout(function () {
+        if (mic === m) ouvir(m);
+      }, 150);
     };
     try {
-      rec.start();
+      r.start();
     } catch (e) {
-      return;
+      encerrarMic();
     }
+  }
+
+  botaoMic.addEventListener("click", function () {
+    if (mic) return encerrarMic(); // segundo toque: para de ouvir
+    var m = { falou: false };
+    mic = m;
     gravando = true;
     botaoMic.classList.add("gravando");
-    botaoMic.setAttribute("aria-label", "Parar de gravar");
-    campo.placeholder = "Pode falar, estou ouvindo...";
+    botaoMic.setAttribute("aria-label", "Parar de ouvir");
+    campo.placeholder = "Pode falar, sem pressa. Toque no microfone para parar.";
+    m.maximo = setTimeout(function () {
+      if (mic === m) encerrarMic();
+    }, MIC_MAX_MS);
+    vigiarSilencio(m);
+    ouvir(m);
     medir("microfone");
   });
+
+  // trecho do texto principal da página, para o agente saber o que o visitante está lendo
+  var textoPaginaCache = null;
+  function textoDaPagina() {
+    if (textoPaginaCache !== null) return textoPaginaCache;
+    var partes = [];
+    var tam = 0;
+    try {
+      var els = document.querySelectorAll("h1, h2, h3, p, li");
+      for (var i = 0; i < els.length && tam < 1500; i++) {
+        var el = els[i];
+        if (el.closest && el.closest("header, footer, nav, form, select, #quinto-chat, #aviso_privacidade")) continue;
+        var t = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (t.length < 25 && !/^H[1-3]$/.test(el.tagName)) continue;
+        partes.push(t);
+        tam += t.length + 1;
+      }
+    } catch (e) {}
+    textoPaginaCache = partes.join(" ").slice(0, 1500);
+    return textoPaginaCache;
+  }
 
   var ocupado = false;
   function enviar(textoPronto) {
@@ -335,7 +428,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         mensagens: estado.historico.slice(-MAX_HISTORICO),
-        pagina: { url: location.href, titulo: document.title },
+        pagina: { url: location.href, titulo: document.title, texto: textoDaPagina() },
         rodada: estado.rodada,
         contato: !!(estado.chamou || estado.contato),
         fichas: fichasAbertas().map(function (v) {

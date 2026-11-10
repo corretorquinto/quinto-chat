@@ -17,7 +17,14 @@ export async function carregarCatalogo(url, agora = Date.now()) {
       _cidade: normalizar(i.cidade),
       _texto: normalizar([i.titulo, i.tipo, i.bairro, i.endereco, i.descricao, ...(i.caracteristicas || [])].join(" ")),
     }));
-    memoria = { quando: agora, url, dados: { gerado_em: json.gerado_em, imoveis } };
+    // páginas e artigos do site (resumos), para o agente responder sobre o conteúdo do site
+    const paginas = (json.paginas || []).map((p) => ({ ...p, _titulo: normalizar(p.titulo), _texto: normalizar(p.resumo) }));
+    const sairam = (json.sairam || []).map((i) => ({ ...i, _bairro: normalizar(i.bairro), _cidade: normalizar(i.cidade) }));
+    memoria = {
+      quando: agora,
+      url,
+      dados: { gerado_em: json.gerado_em, imoveis, paginas, sairam, historico_desde: json.historico_desde || null, fontes: json.fontes || null },
+    };
   } catch (erro) {
     console.log("catalogo_erro", String(erro));
     if (!memoria.dados) throw erro; // sem cópia anterior não há o que fazer
@@ -48,10 +55,14 @@ export function buscar(imoveis, f = {}) {
   const bairros = [].concat(f.bairro || []).map(normalizar).filter(Boolean);
   const palavras = [].concat(f.palavras_chave || []).map(normalizar).filter(Boolean);
   const limite = Math.min(Math.max(Number(f.limite) || 4, 1), 8);
+  const cidade = normalizar(f.cidade);
+  const rua = nomeDaRua(f.rua);
 
   let lista = imoveis.filter((i) => {
     // o filtro de bairro também aceita a cidade (ex.: ['Maricá'])
     if (bairros.length && !bairros.some((b) => (i._bairro && (i._bairro.includes(b) || b.includes(i._bairro))) || (i._cidade && i._cidade === b))) return false;
+    if (cidade && i._cidade !== cidade) return false;
+    if (rua && !naRua(i, rua)) return false;
     if (f.tipo && !semelhante(i.tipo, f.tipo)) return false;
     if (f.quartos_min && !(i.quartos >= f.quartos_min)) return false;
     if (f.quartos_max && !(i.quartos <= f.quartos_max)) return false;
@@ -65,9 +76,79 @@ export function buscar(imoveis, f = {}) {
   });
 
   const total = lista.length;
-  // Com teto de preço, mostra primeiro os mais próximos do teto (o visitante costuma usar o orçamento todo)
-  lista.sort((a, b) => (f.preco_max ? (b.preco || 0) - (a.preco || 0) : (a.preco || 0) - (b.preco || 0)));
+  // ordenar: "recentes" (cadastrados por último), "menor_preco" ou "maior_preco".
+  // Sem ordem pedida: com teto de preço, os mais próximos do teto primeiro; senão, do menor para o maior preço.
+  const ordem = normalizar(f.ordenar);
+  if (ordem === "recentes") lista.sort(maisRecente);
+  else if (ordem === "maior_preco") lista.sort((a, b) => (b.preco || 0) - (a.preco || 0));
+  else if (ordem === "menor_preco") lista.sort((a, b) => (a.preco || 0) - (b.preco || 0));
+  else lista.sort((a, b) => (f.preco_max ? (b.preco || 0) - (a.preco || 0) : (a.preco || 0) - (b.preco || 0)));
   return { total, imoveis: lista.slice(0, limite).map(resumo) };
+}
+
+// O número do imóvel no site cresce a cada cadastro: quanto maior, mais recente
+export function ordemDeCadastro(i) {
+  return Number(String(i.id || "").replace(/\D/g, "")) || 0;
+}
+// Mais recentes primeiro: pela data em que entrou no catálogo; sem data, pelo número do site
+export function maisRecente(a, b) {
+  if (a.desde && b.desde && a.desde !== b.desde) return a.desde < b.desde ? 1 : -1;
+  if (a.desde && !b.desde) return -1;
+  if (b.desde && !a.desde) return 1;
+  return ordemDeCadastro(b) - ordemDeCadastro(a);
+}
+
+// "Rua Otávio Carneiro, 123" ou "otavio carneiro" -> "otavio carneiro" (sem o tipo de logradouro)
+export function nomeDaRua(t) {
+  const s = normalizar(t).split(/[,\-–]/)[0].replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+  return s.replace(/^(rua|r|avenida|av|estrada|estr|travessa|tv|alameda|al|praca|largo|lgo|via|rodovia)\s+/, "").trim();
+}
+// O imóvel fica na rua? Vale o endereço; se ele estiver vazio, a rua citada no título ou na descrição
+function naRua(i, rua) {
+  if (rua.length < 4) return false;
+  const end = nomeDaRua(i.endereco);
+  if (end) return end === rua || end.includes(rua) || (rua.includes(end) && end.length >= 6);
+  return (" " + (i._texto || "") + " ").replace(/[^a-z0-9 ]+/g, " ").includes(" " + rua + " ");
+}
+
+// Imóveis que saíram do site (vendidos ou retirados), com a data em que saíram
+export function consultarSaidas(sairam, f = {}) {
+  const cidade = normalizar(f.cidade);
+  const bairros = [].concat(f.bairro || []).map(normalizar).filter(Boolean);
+  const rua = nomeDaRua(f.rua);
+  const lista = (sairam || []).filter((i) => {
+    if (cidade && i._cidade !== cidade) return false;
+    if (bairros.length && !bairros.some((b) => i._bairro && (i._bairro.includes(b) || b.includes(i._bairro)))) return false;
+    if (f.tipo && !semelhante(i.tipo, f.tipo)) return false;
+    if (rua && !(nomeDaRua(i.endereco) || "").includes(rua)) return false;
+    return true;
+  });
+  lista.sort((a, b) => (a.saiu_em < b.saiu_em ? 1 : a.saiu_em > b.saiu_em ? -1 : 0));
+  return {
+    total: lista.length,
+    imoveis: lista.slice(0, 10).map(({ _bairro, _cidade, id, ...r }) => r),
+  };
+}
+
+const VAZIAS = new Set("a o e de da do das dos em no na nos nas um uma para por com que como qual quais sobre tem ter the".split(" "));
+
+// Procura nas páginas e artigos do site os que tratam do assunto pedido
+export function consultarSite(paginas, termos, limite = 4) {
+  const palavras = [...new Set(normalizar(termos).split(/[^a-z0-9]+/).filter((p) => p.length >= 3 && !VAZIAS.has(p)))];
+  if (!palavras.length) return [];
+  return (paginas || [])
+    .map((p) => {
+      let pontos = 0;
+      for (const w of palavras) {
+        if (p._titulo.includes(w)) pontos += 3;
+        if (p._texto.includes(w)) pontos += 1;
+      }
+      return { p, pontos };
+    })
+    .filter((x) => x.pontos > 0)
+    .sort((a, b) => b.pontos - a.pontos)
+    .slice(0, limite)
+    .map(({ p }) => ({ titulo: p.titulo, tipo: p.tipo, url: p.url, resumo: String(p.resumo || "").slice(0, 700) }));
 }
 
 export function acharPorCodigo(imoveis, codigo) {
@@ -87,12 +168,14 @@ export function resumo(i) {
     tipo: i.tipo,
     bairro: i.bairro,
     ...(i.cidade && i.cidade !== "Niterói" ? { cidade: i.cidade } : {}),
+    ...(i.endereco ? { endereco: i.endereco } : {}),
     preco: i.preco,
     quartos: i.quartos,
     suites: i.suites,
     vagas: i.vagas,
     area: i.area,
     titulo: limparTitulo(i.titulo),
+    ...(i.desde ? { no_site_desde: i.desde } : {}),
   };
 }
 
@@ -115,7 +198,7 @@ export function cartao(i) {
   };
 }
 
-export function resumoDoCatalogo(imoveis) {
+export function resumoDoCatalogo(imoveis, extra = {}) {
   const porBairro = {};
   const porCidade = {};
   let min = Infinity;
@@ -137,7 +220,20 @@ export function resumoDoCatalogo(imoveis) {
     .sort((a, b) => b[1] - a[1])
     .map(([c, n]) => `${c} (${n})`)
     .join(", ");
-  return `Catálogo atual: ${imoveis.length} imóveis à venda.${cidades ? ` Cidades: ${cidades}.` : ""} Bairros: ${bairros}. Faixa de preço: ${faixa}.`;
+  const porTipo = {};
+  for (const i of imoveis) porTipo[i.tipo] = (porTipo[i.tipo] || 0) + 1;
+  const tipos = Object.entries(porTipo)
+    .sort((a, b) => b[1] - a[1])
+    .map(([t, n]) => `${t} (${n})`)
+    .join(", ");
+  const recentes = [...imoveis]
+    .sort(maisRecente)
+    .slice(0, 5)
+    .map((i) => `#${i.codigo} (${i.tipo}, ${i.bairro}${i.cidade && i.cidade !== "Niterói" ? ", " + i.cidade : ""}${i.desde ? ", desde " + i.desde.split("-").reverse().join("/") : ""})`)
+    .join("; ");
+  return `Catálogo atual: ${imoveis.length} imóveis à venda (é tudo o que está à venda no site agora).${cidades ? ` Cidades: ${cidades}.` : ""} Bairros: ${bairros}. Tipos: ${tipos}. Faixa de preço: ${faixa}.${recentes ? ` Cadastrados mais recentemente: ${recentes}.` : ""}${
+    extra.historico_desde ? ` O registro de entradas e saídas de imóveis começou em ${extra.historico_desde.split("-").reverse().join("/")}.` : ""
+  }`;
 }
 
 // Títulos do ImobiBrasil às vezes terminam com " | Quinto" (nome do site): o cartão não precisa disso

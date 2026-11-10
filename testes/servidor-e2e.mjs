@@ -69,7 +69,7 @@ const ENV = {
 };
 const registros = [];
 
-function pagina(arquivo, { imovel = "", caminho = "/", balao = null, volta = null, cookies = null } = {}) {
+function pagina(arquivo, { imovel = "", caminho = "/", balao = null, volta = null, cookies = null, mic = null } = {}) {
   const ler = (f) => fs.readFileSync(path.join(DIR, "site", f), "utf8");
   const tag = fs.existsSync(path.join(RAIZ, "gtm", "whatsapp-inteligente-v3.html")) ? '<script src="/gtm/tag.js"></script>' : "";
   return ler(arquivo)
@@ -77,7 +77,7 @@ function pagina(arquivo, { imovel = "", caminho = "/", balao = null, volta = nul
     .replace(
       "__SCRIPTS__",
       tag +
-        `<script src="/widget/quinto-chat.js" data-api="${ORIGEM}" data-catalogo="/catalogo.json"${balao ? ` data-balao-segundos="${Number(balao)}"` : ""}${volta ? ` data-balao-volta-minutos="${Number(volta)}"` : ""}${cookies ? ` data-cookies-espera-segundos="${Number(cookies)}"` : ""} defer></script>`
+        `<script src="/widget/quinto-chat.js" data-api="${ORIGEM}" data-catalogo="/catalogo.json"${balao ? ` data-balao-segundos="${Number(balao)}"` : ""}${volta ? ` data-balao-volta-minutos="${Number(volta)}"` : ""}${cookies ? ` data-cookies-espera-segundos="${Number(cookies)}"` : ""}${mic ? ` data-mic-pausa-segundos="${Number(mic)}"` : ""} defer></script>`
     );
 }
 
@@ -123,7 +123,7 @@ http
     if (u.pathname === "/contato" || u.pathname === "/contato/") return enviarLatin1(res, pagina("contato.html", { caminho: "/contato" }));
     const im = u.pathname.match(/^\/imovel\/(\d+)\//);
     if (im) return enviarLatin1(res, pagina("imovel.html", { imovel: im[1], caminho: u.pathname, balao: u.searchParams.get("balao"), volta: u.searchParams.get("volta"), cookies: u.searchParams.get("cookies") }));
-    const opcoes = { caminho: u.pathname, balao: u.searchParams.get("balao"), volta: u.searchParams.get("volta") };
+    const opcoes = { caminho: u.pathname, balao: u.searchParams.get("balao"), volta: u.searchParams.get("volta"), mic: u.searchParams.get("mic") };
     if (u.pathname === "/") return enviarLatin1(res, pagina("inicio.html", opcoes));
     if (u.pathname.startsWith("/noticia/")) return enviarLatin1(res, pagina(u.pathname.includes("santa-rosa") ? "noticia-bairro.html" : "noticia.html", opcoes));
     if (u.pathname.startsWith("/cat/")) return enviarLatin1(res, pagina("lista.html", opcoes));

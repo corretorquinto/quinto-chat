@@ -195,12 +195,22 @@ async def cenario_venda_e_whatsapp(nav):
 CELULAR = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
 MIC_FALSO = """
+// Imita o celular: o reconhecimento para sozinho a cada pausa na fala, e cada resultado repete o anterior.
+window.__micSessoes = 0;
 window.SpeechRecognition = window.webkitSpeechRecognition = function () {
   var r = this;
-  r.start = function () { setTimeout(function () {
-    r.onresult({ results: [[{ transcript: "apartamento de 2 quartos em Icaraí" }]] });
-    r.onend();
-  }, 200); };
+  r.start = function () {
+    var n = ++window.__micSessoes;
+    window.__micContinuo = r.continuous;
+    setTimeout(function () {
+      if (n === 1) {
+        r.onresult({ results: [[{ transcript: "apartamento" }], [{ transcript: "apartamento de 2 quartos" }]] });
+      } else if (n === 2) {
+        r.onresult({ results: [[{ transcript: "em Icaraí" }]] });
+      }
+      r.onend && r.onend();
+    }, n <= 2 ? 200 : 600);
+  };
   r.stop = function () { r.onend && r.onend(); };
 };
 """
@@ -214,7 +224,7 @@ async def cenario_v12(nav):
     pg = await ctx.new_page()
     pg.erros = []
     pg.on("pageerror", lambda e: pg.erros.append(str(e)))
-    await pg.goto(BASE + "/")
+    await pg.goto(BASE + "/?mic=2")
     # cartões no lugar da lista
     await falar(pg, "me mostra a lista de imóveis")
     baloes = await pg.evaluate(f"[...{SR}.querySelectorAll('.msg.bot')].at(-1).querySelectorAll('.balao').length")
@@ -250,7 +260,21 @@ async def cenario_v12(nav):
     confere(await pg.locator("#quinto-chat .mic").is_visible(), "botão de microfone aparece")
     await pg.locator("#quinto-chat .mic").click()
     await pg.wait_for_timeout(500)
-    confere(await pg.locator("#quinto-chat .entrada textarea").input_value() == "apartamento de 2 quartos em Icaraí", "a fala vira texto no campo, para conferir antes de enviar")
+    await pg.wait_for_timeout(700)
+    confere(await pg.locator("#quinto-chat .entrada textarea").input_value() == "apartamento de 2 quartos em Icaraí", "fala com pausa: o texto continua de onde parou, sem repetir palavras")
+    confere(await pg.evaluate("window.__micContinuo === true && window.__micSessoes >= 2"), "o microfone retoma sozinho depois da pausa")
+    confere(await pg.evaluate(SR + ".querySelector('.mic').classList.contains('gravando')"), "continua ouvindo depois da pausa")
+    await pg.wait_for_timeout(2600)
+    confere(not await pg.evaluate(SR + ".querySelector('.mic').classList.contains('gravando')"), "para sozinho depois do silêncio longo")
+    sess = await pg.evaluate("window.__micSessoes")
+    await pg.wait_for_timeout(1000)
+    confere(await pg.evaluate("window.__micSessoes") == sess, "depois de parar, não volta a ouvir")
+    confere(await pg.locator("#quinto-chat .entrada textarea").input_value() == "apartamento de 2 quartos em Icaraí", "o texto fica no campo para conferir antes de enviar")
+    # segundo toque no microfone para na hora
+    await pg.locator("#quinto-chat .mic").click()
+    await pg.wait_for_timeout(100)
+    await pg.locator("#quinto-chat .mic").click()
+    confere(not await pg.evaluate(SR + ".querySelector('.mic').classList.contains('gravando')"), "tocar de novo no microfone para de ouvir")
     await shot(pg, "v12c_microfone_celular")
     # visitante não sabe quanto pode investir
     await pg.locator("#quinto-chat .entrada textarea").fill("")
@@ -400,6 +424,14 @@ async def cenario_v15(nav):
             ola = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot .balao')].map(e=>e.textContent).join(' ')")
             confere("Niterói" not in ola, f"abertura do chat sem cidade ({ola[:90]!r})")
         await pg.context.close()
+
+    # o chat manda ao agente um trecho do texto da página em que o visitante está
+    pg = await nova_pagina(nav, 390, 800)
+    await pg.goto(BASE + "/noticia/77/as-ruas-mais-charmosas-de-icarai")
+    await falar(pg, "do que fala esta página?")
+    t = (ultimo_pedido().get("pagina") or {}).get("texto", "")
+    confere("uma das mais arborizadas de Icaraí" in t and "Bairros: Icaraí, Santa Rosa" not in t, f"trecho da página vai para o agente, sem o rodapé ({t[:70]!r})")
+    await pg.context.close()
 
 
 async def cenario_sem_mic(nav):
