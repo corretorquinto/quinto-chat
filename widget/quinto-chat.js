@@ -1684,6 +1684,12 @@
   // ---------- utilidades ----------
   function formatar(texto) {
     var h = esc(texto || "");
+    // links no formato [texto](https://...) viram "texto" clicável
+    var links = [];
+    h = h.replace(/\[([^\]\n]{1,140})\]\((https:\/\/[^\s)]+)\)/g, function (m, t, u) {
+      links.push('<a href="' + u + '" target="_blank" rel="noopener">' + t + "</a>");
+      return "\u0000" + (links.length - 1) + "\u0000";
+    });
     h = h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // "R$ 359.000", "R$ 1,2 milhão" e telefones não quebram no meio
     h = h.replace(/R\$\s?\d+(?:[.,]\d+)*(?:\s(?:mil|milh[ãa]o|milh[õo]es))?/g, '<span class="nw">$&</span>');
@@ -1691,6 +1697,9 @@
     h = h.replace(/(https:\/\/[a-z0-9.-]+\.[a-z]{2,}[^\s<)]*)/gi, function (u) {
       var limpo = u.replace(/[.,;:!?]+$/, "");
       return '<a href="' + limpo + '" target="_blank" rel="noopener">' + limpo + "</a>" + u.slice(limpo.length);
+    });
+    h = h.replace(/\u0000(\d+)\u0000/g, function (m, i) {
+      return links[Number(i)];
     });
     return h.replace(/\n/g, "<br>");
   }

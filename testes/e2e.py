@@ -425,6 +425,16 @@ async def cenario_v15(nav):
             confere("Niterói" not in ola, f"abertura do chat sem cidade ({ola[:90]!r})")
         await pg.context.close()
 
+    # link no formato [texto](url) aparece como texto clicável, sem colchetes
+    pg = await nova_pagina(nav, 390, 800)
+    await pg.goto(BASE + "/")
+    await falar(pg, "é seguro comprar imóvel de inventário?")
+    links = await pg.evaluate("[...[..." + SR + ".querySelectorAll('.msg.bot')].at(-1).querySelectorAll('a')].map(a=>[a.textContent,a.href])")
+    txt = await pg.evaluate("[..." + SR + ".querySelectorAll('.msg.bot')].at(-1).innerText")
+    confere(links == [["Leia mais sobre imóvel de inventário", "https://www.quintoimoveis.com.br/noticias/imovel-de-inventario-30260"], ["https://www.quintoimoveis.com.br/financiamento", "https://www.quintoimoveis.com.br/financiamento"]], f"links do agente ({links})")
+    confere("[" not in txt and "](" not in txt, f"sem colchetes na mensagem ({txt[:80]!r})")
+    await pg.context.close()
+
     # o chat manda ao agente um trecho do texto da página em que o visitante está
     pg = await nova_pagina(nav, 390, 800)
     await pg.goto(BASE + "/noticia/77/as-ruas-mais-charmosas-de-icarai")

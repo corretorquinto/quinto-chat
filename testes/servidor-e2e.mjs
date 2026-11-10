@@ -36,6 +36,7 @@ function claudeSimulado(corpo) {
   if (t.includes("quanto custa")) return falar("O condomínio é R$ 1.128 e o IPTU é R$ 113. Se preferir, o telefone é (21) 98103-6246.");
   if (t.includes("não sei quanto")) return usar("abrir_ficha_busca", { valor_indefinido: true });
   if (t.includes("obrigado, vou encerrar")) return usar("abrir_ficha_busca", { bairros: ["Icaraí"] });
+  if (t.includes("inventário")) return falar("Pode ser seguro, com cuidados. [Leia mais sobre imóvel de inventário](https://www.quintoimoveis.com.br/noticias/imovel-de-inventario-30260). Veja também https://www.quintoimoveis.com.br/financiamento.");
   if (t.includes("só oi")) return usar("encaminhar_whatsapp", { resumo: "Quero falar com o corretor Antônio Quinto." });
   return falar("Posso ajudar a encontrar um imóvel. Qual bairro?");
 }
